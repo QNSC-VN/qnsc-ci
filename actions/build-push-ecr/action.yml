@@ -1,0 +1,86 @@
+name: Build & Push image to Amazon ECR
+description: >
+  Set up Docker Buildx, log in to ECR via OIDC credentials already configured
+  in the calling job, and build+push a single image.
+  Caller must have already run `aws-actions/configure-aws-credentials` and
+  `aws-actions/amazon-ecr-login`.
+
+inputs:
+  ecr-registry:
+    description: ECR registry URL — `<account>.dkr.ecr.<region>.amazonaws.com`
+    required: true
+  image-name:
+    description: ECR repository name, e.g. `rally-api`
+    required: true
+  image-tag:
+    description: Primary image tag, e.g. `sha-abc1234` or `v1.2.3`
+    required: true
+  extra-tags:
+    description: >
+      Extra tags to apply (newline-separated, no registry prefix needed).
+      Leave empty to only push the primary tag.
+    required: false
+    default: ''
+  dockerfile:
+    description: Relative path to the Dockerfile
+    required: false
+    default: Dockerfile
+  build-context:
+    description: Docker build context path
+    required: false
+    default: '.'
+  build-target:
+    description: Dockerfile target stage (for multi-stage builds)
+    required: false
+    default: ''
+  cache-scope:
+    description: >
+      GHA cache scope key — use a unique value per image when building
+      multiple images in the same job (e.g. `api`, `worker`, `migrator`).
+    required: false
+    default: default
+
+outputs:
+  image-uri:
+    description: Full URI of the pushed image (`registry/name:tag`)
+    value: ${{ steps.build.outputs.image-uri }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Resolve tags
+      id: tags
+      shell: bash
+      run: |
+        PRIMARY="${{ inputs.ecr-registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+        TAGS="$PRIMARY"
+        if [ -n "${{ inputs.extra-tags }}" ]; then
+          while IFS= read -r t; do
+            [ -n "$t" ] && TAGS="$TAGS
+${{ inputs.ecr-registry }}/${{ inputs.image-name }}:$t"
+          done <<< "${{ inputs.extra-tags }}"
+        fi
+        echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$TAGS"      >> "$GITHUB_OUTPUT"
+        echo "EOF"        >> "$GITHUB_OUTPUT"
+        echo "image-uri=$PRIMARY" >> "$GITHUB_OUTPUT"
+
+    - name: Build & push
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.build-context }}
+        file: ${{ inputs.dockerfile }}
+        target: ${{ inputs.build-target }}
+        push: true
+        tags: ${{ steps.tags.outputs.tags }}
+        cache-from: type=gha,scope=${{ inputs.cache-scope }}
+        cache-to:   type=gha,mode=max,scope=${{ inputs.cache-scope }}
+
+    - name: Expose image URI
+      id: expose
+      shell: bash
+      run: echo "image-uri=${{ steps.tags.outputs.image-uri }}" >> "$GITHUB_OUTPUT"

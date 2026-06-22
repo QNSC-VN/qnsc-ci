@@ -1,0 +1,43 @@
+name: Setup Node.js + pnpm
+description: >
+  Install pnpm, set up Node.js with pnpm cache, and run `pnpm install --frozen-lockfile`.
+  Must be called after `actions/checkout`.
+
+inputs:
+  node-version:
+    description: Node.js version
+    required: false
+    default: '22'
+  pnpm-version:
+    description: pnpm version (must match `packageManager` in package.json)
+    required: false
+    default: '10.33.2'
+  install-deps:
+    description: Run `pnpm install --frozen-lockfile` after setup
+    required: false
+    default: 'true'
+  working-directory:
+    description: Directory to run pnpm install in (defaults to repo root)
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: ${{ inputs.pnpm-version }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+
+    - name: Install dependencies
+      if: inputs.install-deps == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: pnpm install --frozen-lockfile
