@@ -1,0 +1,58 @@
+name: Scan for Secrets
+description: >
+  Scan the repository for accidentally committed secrets using Gitleaks.
+  Uploads a SARIF report to GitHub Security tab on findings.
+
+  Run on every push and PR. Gitleaks scans the full git history for secrets
+  in commits — not just the current diff — so it catches rotated-but-not-revoked
+  credentials in old commits.
+
+  Uses the official gitleaks/gitleaks-action which handles cache and SARIF
+  upload automatically.
+
+inputs:
+  config-path:
+    description: >
+      Optional path to a .gitleaks.toml config file.
+      Leave empty to use Gitleaks defaults (covers 150+ secret patterns).
+    required: false
+    default: ''
+  fail-on-leak:
+    description: Exit 1 (fail the workflow) if any secrets are detected
+    required: false
+    default: 'true'
+  scan-depth:
+    description: >
+      Number of commits to scan (0 = all history).
+      Set to a small number on large repos for faster PR checks.
+      Use 0 on scheduled full scans.
+    required: false
+    default: '0'
+  gitleaks-version:
+    description: Gitleaks action version to pin
+    required: false
+    default: 'v2'
+
+runs:
+  using: composite
+  steps:
+    - name: Run Gitleaks scan
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        # Override GITLEAKS_CONFIG to use custom config if provided
+        GITLEAKS_CONFIG: ${{ inputs.config-path }}
+        # fail-on-leak is handled via GITLEAKS_ENABLE_UPLOAD_ARTIFACT
+        GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
+        GITLEAKS_ENABLE_COMMENTS: 'true'
+      # gitleaks-action exits with non-zero when secrets are found.
+      # If fail-on-leak is false, we allow failure and report only.
+      continue-on-error: ${{ inputs.fail-on-leak == 'false' }}
+
+    - name: Report scan result
+      if: always()
+      shell: bash
+      run: |
+        if [ "${{ inputs.fail-on-leak }}" = "false" ]; then
+          echo "::notice ::Secret scan complete — failures will not block this run (fail-on-leak=false)"
+        fi

@@ -1,0 +1,70 @@
+name: Post-Deploy Health Check
+description: >
+  Poll the service health endpoint after a deployment until it returns HTTP 200
+  (optionally asserting a specific version in the response), or until timeout.
+
+  Use this after `aws ecs update-service` / CloudFront sync to confirm the new
+  version is actually serving traffic before marking the deploy successful.
+
+inputs:
+  url:
+    description: >
+      Full URL to poll, e.g. `https://api.rally.io/v1/health/ready`.
+      The endpoint should return 200 when the service is healthy.
+    required: true
+  expected-version:
+    description: >
+      Optional: assert this string appears somewhere in the response body
+      (e.g. the image tag or semver). Leave empty to only check HTTP 200.
+    required: false
+    default: ''
+  timeout-seconds:
+    description: Maximum seconds to poll before failing
+    required: false
+    default: '120'
+  poll-interval-seconds:
+    description: Seconds between each poll attempt
+    required: false
+    default: '10'
+  expected-status:
+    description: Expected HTTP status code
+    required: false
+    default: '200'
+
+runs:
+  using: composite
+  steps:
+    - name: Poll health endpoint
+      shell: bash
+      run: |
+        URL="${{ inputs.url }}"
+        EXPECTED_VERSION="${{ inputs.expected-version }}"
+        TIMEOUT="${{ inputs.timeout-seconds }}"
+        INTERVAL="${{ inputs.poll-interval-seconds }}"
+        EXPECTED_STATUS="${{ inputs.expected-status }}"
+        ELAPSED=0
+
+        echo "Polling $URL (timeout: ${TIMEOUT}s)"
+
+        while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo -e "\n000")
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          if [ "$STATUS" = "$EXPECTED_STATUS" ]; then
+            if [ -z "$EXPECTED_VERSION" ] || echo "$BODY" | grep -q "$EXPECTED_VERSION"; then
+              echo "✓ Health check passed (HTTP $STATUS${EXPECTED_VERSION:+ | version: $EXPECTED_VERSION found})"
+              exit 0
+            else
+              echo "  [${ELAPSED}s/${TIMEOUT}s] HTTP $STATUS but version '$EXPECTED_VERSION' not in response yet"
+            fi
+          else
+            echo "  [${ELAPSED}s/${TIMEOUT}s] HTTP $STATUS (waiting for $EXPECTED_STATUS)"
+          fi
+
+          sleep "$INTERVAL"
+          ELAPSED=$(( ELAPSED + INTERVAL ))
+        done
+
+        echo "✗ Health check timed out after ${TIMEOUT}s — $URL"
+        exit 1

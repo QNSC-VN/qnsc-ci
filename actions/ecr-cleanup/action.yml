@@ -1,0 +1,96 @@
+name: ECR Cleanup — Delete Old Images
+description: >
+  Delete ECR images that exceed `keep-count` per repository, keeping the most
+  recent ones. Skips images whose tags match `protected-tag-pattern` (e.g.
+  semver release tags).
+
+  Run this on a schedule (weekly) or after every deploy to prevent ECR storage
+  costs from accumulating across many deploys.
+
+  Caller must have AWS credentials configured with ECR read+write permissions.
+
+inputs:
+  repositories:
+    description: >
+      Newline-separated list of ECR repository names to clean.
+      Example:
+        rally-api
+        rally-worker
+        rally-migrator
+    required: true
+  keep-count:
+    description: >
+      Number of most-recent images to keep per repository.
+      All older images (by push date) are deleted.
+    required: false
+    default: '20'
+  protected-tag-pattern:
+    description: >
+      Regex pattern for tags that must NEVER be deleted, regardless of age.
+      Default protects semver release tags (v1.2.3).
+    required: false
+    default: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+  region:
+    description: AWS region where the ECR repositories live
+    required: true
+  dry-run:
+    description: Print what would be deleted without actually deleting
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Install Python deps
+      shell: bash
+      run: pip install boto3 --quiet
+
+    - name: Delete old images
+      shell: python
+      run: |
+        import os, re, sys, boto3
+        from datetime import timezone
+
+        region   = "${{ inputs.region }}"
+        keep     = int("${{ inputs.keep-count }}")
+        pattern  = re.compile(r"${{ inputs.protected-tag-pattern }}")
+        dry_run  = "${{ inputs.dry-run }}" == "true"
+        repos    = [r.strip() for r in """${{ inputs.repositories }}""".splitlines() if r.strip()]
+
+        ecr = boto3.client("ecr", region_name=region)
+        total_deleted = 0
+
+        for repo in repos:
+            print(f"\n── {repo} ──")
+            images = ecr.describe_images(
+                repositoryName=repo,
+                filter={"tagStatus": "ANY"}
+            )["imageDetails"]
+
+            # Sort newest first
+            images.sort(key=lambda x: x.get("imagePushedAt", 0), reverse=True)
+
+            to_delete = []
+            kept = 0
+            for img in images:
+                tags = img.get("imageTags", [])
+                # Never delete protected tags
+                if any(pattern.match(t) for t in tags):
+                    print(f"  🔒 protected: {tags}")
+                    continue
+                if kept < keep:
+                    print(f"  ✓ keep [{kept+1}/{keep}]: {tags or ['<untagged>']}")
+                    kept += 1
+                else:
+                    digest = img["imageDigest"]
+                    print(f"  {'[DRY-RUN] ' if dry_run else ''}🗑  delete: {tags or ['<untagged>']} ({digest[:19]}...)")
+                    to_delete.append({"imageDigest": digest})
+
+            if to_delete and not dry_run:
+                ecr.batch_delete_image(repositoryName=repo, imageIds=to_delete)
+                print(f"  Deleted {len(to_delete)} image(s) from {repo}")
+                total_deleted += len(to_delete)
+            else:
+                print(f"  Nothing to delete from {repo}" if not to_delete else "")
+
+        print(f"\nTotal deleted: {total_deleted}")

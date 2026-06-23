@@ -1,0 +1,162 @@
+name: ECS Run Task
+description: >
+  Run a one-off ECS Fargate task and wait for it to exit.
+  Returns the exit code of the container — non-zero exits fail the action.
+
+  Used for database migrations, data backfills, admin scripts, and any
+  other ephemeral workload that should run once and stop (not a service).
+
+  Caller must have AWS credentials configured with ECS + ECR permissions.
+
+inputs:
+  cluster:
+    description: ECS cluster name
+    required: true
+  task-definition:
+    description: ECS task definition name or ARN (uses the latest active revision)
+    required: true
+  container-name:
+    description: Name of the container inside the task definition to check the exit code of
+    required: true
+  subnet-ids:
+    description: >
+      Comma-separated list of subnet IDs the task should launch in.
+      Use private subnets that have outbound internet access (NAT or VPC endpoint).
+    required: true
+  security-group-ids:
+    description: Comma-separated list of security group IDs for the task
+    required: true
+  region:
+    description: AWS region
+    required: true
+  command-override:
+    description: >
+      Optional JSON array to override the container command.
+      Example: '["pnpm", "db:migrate"]'
+      Leave empty to use the command from the task definition.
+    required: false
+    default: ''
+  timeout-seconds:
+    description: Maximum seconds to wait for the task to finish before failing
+    required: false
+    default: '900'
+  poll-interval-seconds:
+    description: Seconds between task status polls
+    required: false
+    default: '15'
+  launch-type:
+    description: ECS launch type — FARGATE or EC2
+    required: false
+    default: FARGATE
+
+outputs:
+  task-arn:
+    description: ARN of the task that was run
+    value: ${{ steps.run-task.outputs.task-arn }}
+  exit-code:
+    description: Container exit code (0 = success)
+    value: ${{ steps.wait-task.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build network config
+      id: net
+      shell: bash
+      run: |
+        SUBNETS=$(echo "${{ inputs.subnet-ids }}" | tr ',' '\n' | \
+          python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
+        SGS=$(echo "${{ inputs.security-group-ids }}" | tr ',' '\n' | \
+          python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
+        echo "subnets=$SUBNETS" >> "$GITHUB_OUTPUT"
+        echo "sgs=$SGS"        >> "$GITHUB_OUTPUT"
+
+    - name: Run ECS task
+      id: run-task
+      shell: bash
+      run: |
+        # Build optional command override
+        CMD_OVERRIDE=""
+        if [ -n "${{ inputs.command-override }}" ]; then
+          CMD_OVERRIDE=$(cat <<JSON
+        ,"overrides": {
+            "containerOverrides": [{
+              "name": "${{ inputs.container-name }}",
+              "command": ${{ inputs.command-override }}
+            }]
+          }
+        JSON
+        )
+        fi
+
+        TASK_ARN=$(aws ecs run-task \
+          --cluster "${{ inputs.cluster }}" \
+          --task-definition "${{ inputs.task-definition }}" \
+          --launch-type "${{ inputs.launch-type }}" \
+          --network-configuration "{
+            \"awsvpcConfiguration\": {
+              \"subnets\": ${{ steps.net.outputs.subnets }},
+              \"securityGroups\": ${{ steps.net.outputs.sgs }},
+              \"assignPublicIp\": \"DISABLED\"
+            }
+          }" \
+          --region "${{ inputs.region }}" \
+          $CMD_OVERRIDE \
+          --query 'tasks[0].taskArn' --output text)
+
+        echo "task-arn=$TASK_ARN" >> "$GITHUB_OUTPUT"
+        echo "✓ Task started: $TASK_ARN"
+
+    - name: Wait for task to complete
+      id: wait-task
+      shell: bash
+      run: |
+        TASK_ARN="${{ steps.run-task.outputs.task-arn }}"
+        CLUSTER="${{ inputs.cluster }}"
+        REGION="${{ inputs.region }}"
+        CONTAINER="${{ inputs.container-name }}"
+        TIMEOUT="${{ inputs.timeout-seconds }}"
+        INTERVAL="${{ inputs.poll-interval-seconds }}"
+        ELAPSED=0
+
+        echo "Waiting for task to complete (timeout: ${TIMEOUT}s)..."
+
+        while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+          STATUS=$(aws ecs describe-tasks \
+            --cluster "$CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --region "$REGION" \
+            --query 'tasks[0].lastStatus' --output text 2>/dev/null || echo "UNKNOWN")
+
+          if [ "$STATUS" = "STOPPED" ]; then
+            EXIT_CODE=$(aws ecs describe-tasks \
+              --cluster "$CLUSTER" \
+              --tasks "$TASK_ARN" \
+              --region "$REGION" \
+              --query "tasks[0].containers[?name=='$CONTAINER'].exitCode | [0]" \
+              --output text 2>/dev/null || echo "1")
+
+            STOP_REASON=$(aws ecs describe-tasks \
+              --cluster "$CLUSTER" \
+              --tasks "$TASK_ARN" \
+              --region "$REGION" \
+              --query 'tasks[0].stoppedReason' --output text 2>/dev/null || echo "")
+
+            echo "exit-code=${EXIT_CODE:-1}" >> "$GITHUB_OUTPUT"
+
+            if [ "${EXIT_CODE:-1}" = "0" ]; then
+              echo "✓ Task completed successfully (exit 0)"
+              exit 0
+            else
+              echo "✗ Task failed with exit code ${EXIT_CODE:-1}: $STOP_REASON"
+              exit 1
+            fi
+          fi
+
+          echo "  [${ELAPSED}s/${TIMEOUT}s] Status: $STATUS"
+          sleep "$INTERVAL"
+          ELAPSED=$(( ELAPSED + INTERVAL ))
+        done
+
+        echo "✗ Timed out after ${TIMEOUT}s waiting for task $TASK_ARN"
+        exit 1

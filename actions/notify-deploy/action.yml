@@ -1,0 +1,100 @@
+name: Notify Deploy
+description: >
+  Post a deployment notification to a Slack or Discord incoming webhook.
+  Supports both platforms — auto-detects by URL pattern (discord.com vs hooks.slack.com).
+
+inputs:
+  webhook-url:
+    description: Slack incoming webhook URL or Discord webhook URL
+    required: true
+  status:
+    description: "Deployment status: started | success | failure | rollback"
+    required: true
+  service:
+    description: Service name, e.g. rally-api or rally-web
+    required: true
+  environment:
+    description: Target environment, e.g. develop or production
+    required: true
+  version:
+    description: Version or image tag being deployed (e.g. v1.2.3 or sha-abc1234)
+    required: false
+    default: ''
+  run-url:
+    description: Link to the GitHub Actions run (auto-populated by default)
+    required: false
+    default: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+
+runs:
+  using: composite
+  steps:
+    - name: Send notification
+      shell: bash
+      run: |
+        STATUS="${{ inputs.status }}"
+        SERVICE="${{ inputs.service }}"
+        ENV="${{ inputs.environment }}"
+        VERSION="${{ inputs.version }}"
+        RUN_URL="${{ inputs.run-url }}"
+        ACTOR="${{ github.actor }}"
+        WEBHOOK="${{ inputs.webhook-url }}"
+
+        case "$STATUS" in
+          success)  EMOJI="✅"; LABEL="Deploy succeeded"  ;;
+          failure)  EMOJI="❌"; LABEL="Deploy FAILED"      ;;
+          started)  EMOJI="🚀"; LABEL="Deploy started"    ;;
+          rollback) EMOJI="⏪"; LABEL="Rollback triggered" ;;
+          *)        EMOJI="ℹ️"; LABEL="Deploy: $STATUS"   ;;
+        esac
+
+        TITLE="$EMOJI $LABEL — $SERVICE ($ENV)"
+        BODY="Version: ${VERSION:-N/A} | Actor: $ACTOR | Run: $RUN_URL"
+
+        if echo "$WEBHOOK" | grep -q "discord.com"; then
+          # ── Discord ──────────────────────────────────────────────────
+          case "$STATUS" in
+            success)  COLOR=3066993  ;;   # green
+            failure)  COLOR=15158332 ;;   # red
+            rollback) COLOR=16744272 ;;   # orange
+            *)        COLOR=3447003  ;;   # blue
+          esac
+          PAYLOAD=$(printf '{
+            "embeds": [{
+              "title": "%s",
+              "description": "**Environment:** %s\\n**Version:** %s\\n**Actor:** %s",
+              "color": %d,
+              "url": "%s"
+            }]
+          }' "$TITLE" "$ENV" "${VERSION:-N/A}" "$ACTOR" "$COLOR" "$RUN_URL")
+        else
+          # ── Slack ─────────────────────────────────────────────────────
+          case "$STATUS" in
+            success)  SLACK_COLOR="good"    ;;
+            failure)  SLACK_COLOR="danger"  ;;
+            rollback) SLACK_COLOR="warning" ;;
+            *)        SLACK_COLOR="#439FE0" ;;
+          esac
+          PAYLOAD=$(printf '{
+            "text": "%s",
+            "attachments": [{
+              "color": "%s",
+              "fields": [
+                {"title": "Environment", "value": "%s", "short": true},
+                {"title": "Version",     "value": "%s", "short": true},
+                {"title": "Actor",       "value": "%s", "short": true},
+                {"title": "Run",         "value": "<%s|View run>", "short": true}
+              ]
+            }]
+          }' "$TITLE" "$SLACK_COLOR" "$ENV" "${VERSION:-N/A}" "$ACTOR" "$RUN_URL")
+        fi
+
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD" \
+          "$WEBHOOK")
+
+        if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+          echo "⚠️  Webhook returned HTTP $HTTP_CODE — notification may not have sent"
+          exit 1
+        fi
+        echo "✓ Notification sent (HTTP $HTTP_CODE)"
