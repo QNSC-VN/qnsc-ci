@@ -1,0 +1,47 @@
+name: Attest Container Image
+description: >
+  Generate a GitHub-native build provenance attestation for a container image.
+
+  Attestations are cryptographically signed, stored as OCI artefacts in GitHub
+  Packages, and verifiable with `gh attestation verify`. They establish a
+  tamper-evident chain from source commit → build run → image digest, which is:
+  - Supply-chain security (SLSA level 2)
+  - SOC 2 CC8.1 evidence (change management, artefact integrity)
+  - Required for CISA SSDF attestation (executive-order supply-chain rules)
+
+  Uses GitHub's built-in `actions/attest-build-provenance` — no third-party
+  tooling (Sigstore/cosign) required. Free for public and private repos on
+  GitHub.com.
+
+  The image must already have been pushed to ECR before calling this action.
+  Pass the image digest URI (`image@sha256:...`) for a tamper-proof attestation.
+
+inputs:
+  image-ref:
+    description: >
+      Full image reference including digest, e.g.:
+        123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/rally-api@sha256:abc…
+      Using a digest (not a tag) ensures the attestation is bound to an
+      immutable artefact, not a mutable pointer.
+    required: true
+  push-to-registry:
+    description: >
+      Push the attestation to the OCI registry alongside the image.
+      Requires the workflow to have `id-token: write` and `attestations: write`
+      permissions. Recommended for private ECR deployments.
+    required: false
+    default: 'true'
+  github-token:
+    description: GitHub token with `attestations:write` permission
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Attest build provenance
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-name: ${{ inputs.image-ref }}
+        push-to-registry: ${{ inputs.push-to-registry }}
+        github-token: ${{ inputs.github-token }}
