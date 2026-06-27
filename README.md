@@ -1,4 +1,4 @@
-# qncs-gitops
+# qnsc-gitops
 
 Shared GitHub Actions composite actions for all Rally repositories.
 
