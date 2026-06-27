@@ -5,8 +5,9 @@ description: >
 
 inputs:
   webhook-url:
-    description: Slack incoming webhook URL or Discord webhook URL
-    required: true
+    description: Slack incoming webhook URL or Discord webhook URL. Leave empty to skip notification silently.
+    required: false
+    default: ''
   status:
     description: "Deployment status: started | success | failure | rollback"
     required: true
@@ -31,13 +32,18 @@ runs:
     - name: Send notification
       shell: bash
       run: |
+        WEBHOOK="${{ inputs.webhook-url }}"
+        if [ -z "$WEBHOOK" ]; then
+          echo "::notice ::notify-deploy: webhook-url not set — skipping notification"
+          exit 0
+        fi
+
         STATUS="${{ inputs.status }}"
         SERVICE="${{ inputs.service }}"
         ENV="${{ inputs.environment }}"
         VERSION="${{ inputs.version }}"
         RUN_URL="${{ inputs.run-url }}"
         ACTOR="${{ github.actor }}"
-        WEBHOOK="${{ inputs.webhook-url }}"
 
         case "$STATUS" in
           success)  EMOJI="✅"; LABEL="Deploy succeeded"  ;;

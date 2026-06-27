@@ -28,16 +28,12 @@ inputs:
       Use 0 on scheduled full scans.
     required: false
     default: '0'
-  gitleaks-version:
-    description: Gitleaks action version to pin
-    required: false
-    default: 'v2'
 
 runs:
   using: composite
   steps:
     - name: Run Gitleaks scan
-      uses: gitleaks/gitleaks-action@v2
+      uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.8
       env:
         GITHUB_TOKEN: ${{ github.token }}
         # Override GITLEAKS_CONFIG to use custom config if provided
