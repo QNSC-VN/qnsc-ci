@@ -36,7 +36,7 @@ inputs:
   dry-run:
     description: Print what would be deleted without actually deleting
     required: false
-    default: 'false'
+    default: 'true'
 
 runs:
   using: composite

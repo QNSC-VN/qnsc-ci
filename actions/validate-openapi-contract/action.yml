@@ -54,9 +54,20 @@ runs:
         VERSION="${{ inputs.oasdiff-version }}"
         OS="linux"
         ARCH="amd64"
-        URL="https://github.com/Tufin/oasdiff/releases/download/${VERSION}/oasdiff_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+        BASE="https://github.com/Tufin/oasdiff/releases/download/${VERSION}"
+        TARBALL="oasdiff_${VERSION#v}_${OS}_${ARCH}.tar.gz"
         echo "Downloading oasdiff ${VERSION}..."
-        curl -sSL "$URL" | tar -xz -C /usr/local/bin oasdiff
+        curl -sSL "${BASE}/${TARBALL}"          -o /tmp/oasdiff.tar.gz
+        curl -sSL "${BASE}/checksums.txt"       -o /tmp/oasdiff-checksums.txt
+        # Verify SHA-256 before extracting
+        EXPECTED=$(grep "${TARBALL}" /tmp/oasdiff-checksums.txt | awk '{print $1}')
+        ACTUAL=$(sha256sum /tmp/oasdiff.tar.gz | awk '{print $1}')
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+          echo "::error ::Checksum mismatch for ${TARBALL}: expected=${EXPECTED} got=${ACTUAL}"
+          exit 1
+        fi
+        tar -xz -C /usr/local/bin -f /tmp/oasdiff.tar.gz oasdiff
+        rm /tmp/oasdiff.tar.gz /tmp/oasdiff-checksums.txt
         oasdiff --version
 
     - name: Compare OpenAPI specs
