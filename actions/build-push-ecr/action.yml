@@ -44,6 +44,9 @@ outputs:
   image-uri:
     description: Full URI of the pushed image (`registry/name:tag`)
     value: ${{ steps.build.outputs.image-uri }}
+  image-digest:
+    description: Image digest (`sha256:...`) — use with attest-image for tamper-proof SLSA provenance
+    value: ${{ steps.build.outputs.digest }}
 
 runs:
   using: composite
@@ -80,7 +83,9 @@ ${{ inputs.ecr-registry }}/${{ inputs.image-name }}:$t"
         cache-from: type=gha,scope=${{ inputs.cache-scope }}
         cache-to:   type=gha,mode=max,scope=${{ inputs.cache-scope }}
 
-    - name: Expose image URI
+    - name: Expose image URI and digest
       id: expose
       shell: bash
-      run: echo "image-uri=${{ steps.tags.outputs.image-uri }}" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "image-uri=${{ steps.tags.outputs.image-uri }}" >> "$GITHUB_OUTPUT"
+        echo "digest=${{ steps.build.outputs.digest }}"      >> "$GITHUB_OUTPUT"

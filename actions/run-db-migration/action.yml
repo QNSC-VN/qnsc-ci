@@ -56,7 +56,7 @@ runs:
   steps:
     - name: Run migration task
       id: migrate
-      uses: nghiavan0610/rally-gitops/actions/ecs-run-task@main
+      uses: nghiavan0610/qncs-gitops/actions/ecs-run-task@main
       with:
         cluster: ${{ inputs.cluster }}
         task-definition: ${{ inputs.task-definition }}
