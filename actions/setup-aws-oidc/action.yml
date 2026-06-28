@@ -55,7 +55,7 @@ runs:
   steps:
     - name: Configure AWS credentials (OIDC)
       id: creds
-      uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d0407291516679297d9126  # v4.1.0
+      uses: aws-actions/configure-aws-credentials@v4  # v4
       with:
         role-to-assume: ${{ inputs.role-arn }}
         aws-region: ${{ inputs.region }}
