@@ -1,0 +1,10 @@
+# Shared CI/CD actions — highest blast radius in the org.
+# A change here affects every product's pipeline, so all changes require
+# platform-lead review.
+*                          @Nghia-VanTrong
+
+# Composite actions — the public API consumed by all product repos.
+actions/                   @Nghia-VanTrong
+
+# Workflows that release/version this repo.
+.github/workflows/         @Nghia-VanTrong
