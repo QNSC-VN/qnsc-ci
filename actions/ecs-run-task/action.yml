@@ -60,48 +60,31 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Build network config
-      id: net
-      shell: bash
-      run: |
-        SUBNETS=$(echo "${{ inputs.subnet-ids }}" | tr ',' '\n' | \
-          python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
-        SGS=$(echo "${{ inputs.security-group-ids }}" | tr ',' '\n' | \
-          python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
-        echo "subnets=$SUBNETS" >> "$GITHUB_OUTPUT"
-        echo "sgs=$SGS"        >> "$GITHUB_OUTPUT"
-
     - name: Run ECS task
       id: run-task
       shell: bash
       run: |
-        # Build optional command override
-        CMD_OVERRIDE=""
+        # Build network-config JSON inline — avoids cross-step output format issues
+        SUBNETS=$(printf '%s' "${{ inputs.subnet-ids }}" | tr ',' '\n' | \
+          python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
+        SGS=$(printf '%s' "${{ inputs.security-group-ids }}" | tr ',' '\n' | \
+          python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
+        NETWORK_CONFIG="{\"awsvpcConfiguration\":{\"subnets\":${SUBNETS},\"securityGroups\":${SGS},\"assignPublicIp\":\"DISABLED\"}}"
+
+        # Build optional overrides JSON
+        OVERRIDES_ARG=()
         if [ -n "${{ inputs.command-override }}" ]; then
-          CMD_OVERRIDE=$(cat <<JSON
-        ,"overrides": {
-            "containerOverrides": [{
-              "name": "${{ inputs.container-name }}",
-              "command": ${{ inputs.command-override }}
-            }]
-          }
-        JSON
-        )
+          OVERRIDES_JSON="{\"containerOverrides\":[{\"name\":\"${{ inputs.container-name }}\",\"command\":${{ inputs.command-override }}}]}"
+          OVERRIDES_ARG=(--overrides "$OVERRIDES_JSON")
         fi
 
         TASK_ARN=$(aws ecs run-task \
           --cluster "${{ inputs.cluster }}" \
           --task-definition "${{ inputs.task-definition }}" \
           --launch-type "${{ inputs.launch-type }}" \
-          --network-configuration "{
-            \"awsvpcConfiguration\": {
-              \"subnets\": ${{ steps.net.outputs.subnets }},
-              \"securityGroups\": ${{ steps.net.outputs.sgs }},
-              \"assignPublicIp\": \"DISABLED\"
-            }
-          }" \
+          --network-configuration "$NETWORK_CONFIG" \
           --region "${{ inputs.region }}" \
-          $CMD_OVERRIDE \
+          "${OVERRIDES_ARG[@]}" \
           --query 'tasks[0].taskArn' --output text)
 
         echo "task-arn=$TASK_ARN" >> "$GITHUB_OUTPUT"
