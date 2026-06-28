@@ -12,7 +12,7 @@ inputs:
     description: "Deployment status: started | success | failure | rollback"
     required: true
   service:
-    description: Service name, e.g. rally-api or rally-web
+    description: Service name, e.g. <product>-api or <product>-web
     required: true
   environment:
     description: Target environment, e.g. develop or production

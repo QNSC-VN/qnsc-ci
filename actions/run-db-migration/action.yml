@@ -3,7 +3,7 @@ description: >
   Run Drizzle database migrations as a gated ECS run-task.
 
   This is the "third motion" described in ARCHITECTURE_CURRENT.md:
-    1. Provision   (rally-infra, OpenTofu)
+    1. Provision   (the product's infra repo, OpenTofu)
     2. Migrate     (this action — MUST run before new app version goes live)
     3. Deploy      (aws ecs update-service with new image tag)
 
@@ -11,14 +11,14 @@ description: >
   proceeding. Never run migrations and flip traffic in the same atomic step.
 
   Caller must have AWS credentials configured with ECS + ECR permissions.
-  The migrator ECS task definition must already exist (provisioned by rally-infra).
+  The migrator ECS task definition must already exist (provisioned by the product's infra repo).
 
 inputs:
   cluster:
     description: ECS cluster name
     required: true
   task-definition:
-    description: Migrator ECS task definition name (e.g. rally-develop-migrator)
+    description: Migrator ECS task definition name (e.g. <product>-develop-migrator)
     required: true
   container-name:
     description: Container name inside the migrator task definition

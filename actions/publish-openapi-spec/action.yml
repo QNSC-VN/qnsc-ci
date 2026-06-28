@@ -4,15 +4,15 @@ description: >
   push it to an S3 bucket for cross-repo access.
 
   This implements the OpenAPI-first contract workflow described in ARCHITECTURE_CURRENT.md §3.2:
-    rally-api CI generates the spec → publishes it here →
-    rally-web CI downloads it → runs openapi-typescript/Orval codegen →
+    the API repo's CI generates the spec → publishes it here →
+    the web repo's CI downloads it → runs openapi-typescript/Orval codegen →
     a breaking API change becomes a FE build failure, not a production surprise.
 
   Two delivery mechanisms (use both for full coverage):
   1. **GitHub artifact** — available within the same workflow run. Use in the
      same-run job for contract validation (`validate-openapi-contract` action).
-  2. **S3 upload** — durable, cross-repo accessible. rally-web CI downloads the
-     base branch spec from S3 before running codegen and contract diff.
+  2. **S3 upload** — durable, cross-repo accessible. The web repo's CI downloads
+     the base branch spec from S3 before running codegen and contract diff.
 
   S3 key convention (enforced by this action):
     openapi/{environment}/{git-ref}/openapi.json   ← immutable, per-build
@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   s3-bucket:
-    description: S3 bucket name (e.g. rally-artifacts)
+    description: S3 bucket name (e.g. qnsc-artifacts)
     required: false
     default: ''
   s3-environment:

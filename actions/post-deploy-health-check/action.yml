@@ -9,7 +9,7 @@ description: >
 inputs:
   url:
     description: >
-      Full URL to poll, e.g. `https://api.rally.io/v1/health/ready`.
+      Full URL to poll, e.g. `https://api.<product>.qnsc.vn/v1/health/ready`.
       The endpoint should return 200 when the service is healthy.
     required: true
   expected-version:

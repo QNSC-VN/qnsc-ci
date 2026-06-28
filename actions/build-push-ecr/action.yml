@@ -10,7 +10,7 @@ inputs:
     description: ECR registry URL — `<account>.dkr.ecr.<region>.amazonaws.com`
     required: true
   image-name:
-    description: ECR repository name, e.g. `rally-api`
+    description: ECR repository name, e.g. `<product>-api`
     required: true
   image-tag:
     description: Primary image tag, e.g. `sha-abc1234` or `v1.2.3`

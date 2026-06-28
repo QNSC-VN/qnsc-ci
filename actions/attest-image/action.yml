@@ -20,7 +20,7 @@ inputs:
   image-ref:
     description: >
       Full image reference including digest, e.g.:
-        123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/rally-api@sha256:abc…
+        123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/<product>-api@sha256:abc…
       Using a digest (not a tag) ensures the attestation is bound to an
       immutable artefact, not a mutable pointer.
     required: true

@@ -14,9 +14,9 @@ inputs:
     description: >
       Newline-separated list of ECR repository names to clean.
       Example:
-        rally-api
-        rally-worker
-        rally-migrator
+        <product>-api
+        <product>-worker
+        <product>-migrator
     required: true
   keep-count:
     description: >

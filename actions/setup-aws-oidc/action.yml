@@ -3,12 +3,12 @@ description: >
   Configure AWS credentials via GitHub OIDC (no long-lived keys stored anywhere)
   and optionally log in to Amazon ECR.
 
-  This standardizes the OIDC auth pattern used across all rally repos so the
-  role ARN convention, session duration, and ECR login step are managed in one
-  place. Callers never need to reference `aws-actions/*` directly.
+  This standardizes the OIDC auth pattern used across all QNSC product repos so
+  the role ARN convention, session duration, and ECR login step are managed in
+  one place. Callers never need to reference `aws-actions/*` directly.
 
   Prerequisites:
-  - The OIDC trust relationship must be provisioned in rally-infra
+  - The OIDC trust relationship must be provisioned in the product's infra repo
     (modules/github-oidc). Each environment has a separate IAM role with
     least-privilege policies scoped to that env.
   - GitHub Actions must be allowed to assume the role from the calling repo/branch.
@@ -17,7 +17,7 @@ inputs:
   role-arn:
     description: >
       IAM role ARN to assume via OIDC.
-      Convention: `arn:aws:iam::<ACCOUNT>:role/rally-<env>-github-<scope>`
+      Convention: `arn:aws:iam::<ACCOUNT>:role/<product>-<env>-github-<scope>`
       e.g. `arn:aws:iam::123456789012:role/rally-develop-github-deploy`
     required: true
   region:
