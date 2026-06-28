@@ -1,8 +1,8 @@
 # qnsc-gitops
 
-Shared GitHub Actions composite actions for all Rally repositories.
+Shared GitHub Actions composite actions for all QNSC product repositories (Rally, OpsHub, and future products).
 
-Inspired by the `dr-gitops` pattern from DT-SFI: shared CI/CD logic lives here as versioned composite actions. Bug fixes and improvements propagate automatically to all consumers on the next reference — no copy-paste drift.
+Shared CI/CD logic lives here as versioned composite actions, so bug fixes and improvements propagate automatically to all consumers on the next reference — no copy-paste drift. The examples below use Rally repositories, but the same actions are consumed by OpsHub and any other QNSC product.
 
 ---
 
