@@ -62,8 +62,7 @@ runs:
         TAGS="$PRIMARY"
         if [ -n "${{ inputs.extra-tags }}" ]; then
           while IFS= read -r t; do
-            [ -n "$t" ] && TAGS="$TAGS
-${{ inputs.ecr-registry }}/${{ inputs.image-name }}:$t"
+            [ -n "$t" ] && TAGS="$TAGS"$'\n'"${{ inputs.ecr-registry }}/${{ inputs.image-name }}:$t"
           done <<< "${{ inputs.extra-tags }}"
         fi
         echo "tags<<EOF" >> "$GITHUB_OUTPUT"
