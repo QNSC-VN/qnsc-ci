@@ -1,0 +1,41 @@
+name: Setup OpenTofu + AWS OIDC
+description: >
+  Install OpenTofu and configure AWS credentials via GitHub OIDC for infra
+  (OpenTofu) pipelines. This is the infra counterpart to `setup-aws-oidc`
+  (which targets application/ECR deploys): it standardizes the tofu version,
+  the OIDC role-assumption, and the region across all `*-infra` repos so the
+  plan/apply pipelines stay consistent.
+
+  Prerequisites:
+  - The infra OIDC role (e.g. `<product>-github-infra-apply` / `-plan`) must be
+    provisioned in the product's infra `_shared` stack with a trust policy
+    scoped to this repo.
+  - The calling job must set `permissions: id-token: write` (and `contents: read`).
+
+inputs:
+  role-arn:
+    description: >
+      IAM role ARN to assume via OIDC.
+      Convention: `arn:aws:iam::<ACCOUNT>:role/<product>-github-infra-<plan|apply>`
+    required: true
+  aws-region:
+    description: AWS region to operate in.
+    required: false
+    default: ap-southeast-1
+  tofu-version:
+    description: OpenTofu version to install.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install OpenTofu
+      uses: opentofu/setup-opentofu@909f0081d9d7379c18f3cb2c598fca1c21d5b7c0 # v1.0.5
+      with:
+        tofu_version: ${{ inputs.tofu-version }}
+
+    - name: Configure AWS credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d0407291516679297d9126 # v4.0.3
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.aws-region }}
