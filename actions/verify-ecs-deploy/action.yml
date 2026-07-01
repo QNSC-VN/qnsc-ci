@@ -63,7 +63,8 @@ runs:
               --output text 2>/dev/null || echo "")
           fi
 
-          if echo "$RUNNING_IMAGES" | grep -q ":$TAG"; then
+          # Split on whitespace so ":v1" never falsely matches ":v10" or ":v1-rc1".
+          if echo "$RUNNING_IMAGES" | tr ' \t' '\n' | grep -qF ":${TAG}"; then
             echo "✓ Service $SERVICE is running image tag: $TAG"
             exit 0
           fi

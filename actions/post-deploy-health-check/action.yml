@@ -47,9 +47,15 @@ runs:
         echo "Polling $URL (timeout: ${TIMEOUT}s)"
 
         while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo -e "\n000")
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          STATUS=$(echo "$RESPONSE" | tail -n 1)
+          # --max-time 10: cap each attempt. On curl error/timeout the substitution
+          # returns non-zero; we append \n000 so STATUS parsing never gets an empty string.
+          HTTP_OUT=$(curl -s -w "\n%{http_code}" --max-time 10 "$URL" 2>/dev/null)
+          CURL_RC=$?
+          if [ $CURL_RC -ne 0 ] || [ -z "$HTTP_OUT" ]; then
+            HTTP_OUT="curl-failed\n000"
+          fi
+          BODY=$(printf '%s' "$HTTP_OUT" | head -n -1)
+          STATUS=$(printf '%s' "$HTTP_OUT" | tail -n 1)
 
           if [ "$STATUS" = "$EXPECTED_STATUS" ]; then
             if [ -z "$EXPECTED_VERSION" ] || echo "$BODY" | grep -q "$EXPECTED_VERSION"; then
