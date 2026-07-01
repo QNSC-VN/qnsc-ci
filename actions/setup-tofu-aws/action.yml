@@ -1,41 +1,29 @@
 name: Setup OpenTofu + AWS OIDC
 description: >
-  Install OpenTofu and configure AWS credentials via GitHub OIDC for infra
-  (OpenTofu) pipelines. This is the infra counterpart to `setup-aws-oidc`
-  (which targets application/ECR deploys): it standardizes the tofu version,
-  the OIDC role-assumption, and the region across all `*-infra` repos so the
-  plan/apply pipelines stay consistent.
-
-  Prerequisites:
-  - The infra OIDC role (e.g. `<product>-github-infra-apply` / `-plan`) must be
-    provisioned in the product's infra `_shared` stack with a trust policy
-    scoped to this repo.
-  - The calling job must set `permissions: id-token: write` (and `contents: read`).
+  Install OpenTofu and authenticate to AWS via GitHub OIDC.
+  Use this in any job that runs `tofu init / plan / apply`.
 
 inputs:
   role-arn:
-    description: >
-      IAM role ARN to assume via OIDC.
-      Convention: `arn:aws:iam::<ACCOUNT>:role/<product>-github-infra-<plan|apply>`
+    description: IAM role ARN to assume via OIDC (e.g. arn:aws:iam::123456789012:role/my-role).
     required: true
   aws-region:
-    description: AWS region to operate in.
+    description: AWS region.
     required: false
     default: ap-southeast-1
   tofu-version:
     description: OpenTofu version to install.
-    required: true
+    required: false
+    default: "1.9.1"
 
 runs:
   using: composite
   steps:
-    - name: Install OpenTofu
-      uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
+    - uses: opentofu/setup-opentofu@909f0081d9d7379c18f3cb2c598fca1c21d5b7c0   # v1.0.5
       with:
         tofu_version: ${{ inputs.tofu-version }}
 
-    - name: Configure AWS credentials (OIDC)
-      uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d0407291516679297d9126 # v4.0.3
+    - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d0407291516679297d9126   # v4.0.3
       with:
         role-to-assume: ${{ inputs.role-arn }}
-        aws-region: ${{ inputs.aws-region }}
+        aws-region:     ${{ inputs.aws-region }}
