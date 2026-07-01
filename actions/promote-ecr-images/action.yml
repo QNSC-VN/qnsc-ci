@@ -1,0 +1,75 @@
+name: Promote ECR Images
+description: >
+  Retag existing ECR images from source-tag to release-tag without rebuilding.
+  Used to promote the exact sha-xxx image tested in develop to a semver prod tag.
+  Caller must have already run setup-aws-oidc with ECR push permissions.
+
+inputs:
+  image-names:
+    description: >
+      Comma-separated ECR repository names to promote,
+      e.g. `rally-api,rally-worker,rally-migrator`
+    required: true
+  source-tag:
+    description: >
+      Existing image tag to promote from, e.g. `sha-abc1234`.
+      Must already exist in ECR — typically the sha tag from the develop deploy.
+    required: true
+  release-tag:
+    description: >
+      Target tag to promote to, e.g. `v1.2.3`.
+    required: true
+  region:
+    description: AWS region where ECR repositories live
+    required: true
+
+outputs:
+  promoted-images:
+    description: Newline-separated list of `repo:release-tag` that were promoted
+    value: ${{ steps.promote.outputs.promoted }}
+
+runs:
+  using: composite
+  steps:
+    - name: Promote ${{ inputs.source-tag }} → ${{ inputs.release-tag }}
+      id: promote
+      shell: bash
+      env:
+        SOURCE_TAG:  ${{ inputs.source-tag }}
+        RELEASE_TAG: ${{ inputs.release-tag }}
+        REGION:      ${{ inputs.region }}
+      run: |
+        set -euo pipefail
+        PROMOTED=""
+
+        IFS=',' read -ra REPOS <<< "${{ inputs.image-names }}"
+        for repo in "${REPOS[@]}"; do
+          repo="${repo// /}"  # trim whitespace
+          echo "── Promoting $repo: ${SOURCE_TAG} → ${RELEASE_TAG}"
+
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name "$repo" \
+            --image-ids imageTag="${SOURCE_TAG}" \
+            --region "${REGION}" \
+            --query 'images[0].imageManifest' --output text)
+
+          if [[ -z "$MANIFEST" || "$MANIFEST" == "None" ]]; then
+            echo "ERROR: $repo:${SOURCE_TAG} not found in ECR."
+            echo "The commit must be merged to main and deployed to develop before tagging a release."
+            exit 1
+          fi
+
+          aws ecr put-image \
+            --repository-name "$repo" \
+            --image-tag "${RELEASE_TAG}" \
+            --image-manifest "$MANIFEST" \
+            --region "${REGION}" \
+            --output text > /dev/null
+
+          echo "✓ $repo: ${SOURCE_TAG} → ${RELEASE_TAG}"
+          PROMOTED="${PROMOTED}${repo}:${RELEASE_TAG}"$'\n'
+        done
+
+        echo "promoted<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$PROMOTED"     >> "$GITHUB_OUTPUT"
+        echo "EOF"           >> "$GITHUB_OUTPUT"
