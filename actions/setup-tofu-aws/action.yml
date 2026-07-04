@@ -19,11 +19,11 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: opentofu/setup-opentofu@909f0081d9d7379c18f3cb2c598fca1c21d5b7c0   # v1.0.5
+    - uses: opentofu/setup-opentofu@e95ccdd20623115bfd7d47df14a3250d6066a9d0   # v1.0.7
       with:
         tofu_version: ${{ inputs.tofu-version }}
 
-    - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d0407291516679297d9126   # v4.0.3
+    - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722   # v4.1.0
       with:
         role-to-assume: ${{ inputs.role-arn }}
         aws-region:     ${{ inputs.aws-region }}
