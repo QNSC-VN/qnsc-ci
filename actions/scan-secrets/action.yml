@@ -1,54 +1,46 @@
 name: Scan for Secrets
 description: >
-  Scan the repository for accidentally committed secrets using Gitleaks.
-  Uploads a SARIF report to GitHub Security tab on findings.
+  Scan the repository for accidentally committed secrets using the Gitleaks
+  CLI (installed directly from the official GitHub release, not the
+  gitleaks/gitleaks-action wrapper — that wrapper's terms require a paid
+  license for private-org usage; the CLI binary itself is MIT-licensed and
+  free to run directly). Matches the exact invocation already proven in
+  rally's backend-security.yml.
 
   Run on every push and PR. Gitleaks scans the full git history for secrets
   in commits — not just the current diff — so it catches rotated-but-not-revoked
-  credentials in old commits.
-
-  Uses the official gitleaks/gitleaks-action which handles cache and SARIF
-  upload automatically.
+  credentials in old commits. Caller's checkout step must use fetch-depth: 0
+  for full-history scanning.
 
 inputs:
-  config-path:
-    description: >
-      Optional path to a .gitleaks.toml config file.
-      Leave empty to use Gitleaks defaults (covers 150+ secret patterns).
+  gitleaks-version:
+    description: Gitleaks CLI version to install (without the "v" prefix).
     required: false
-    default: ''
+    default: '8.21.2'
   fail-on-leak:
     description: Exit 1 (fail the workflow) if any secrets are detected
     required: false
     default: 'true'
-  scan-depth:
-    description: >
-      Number of commits to scan (0 = all history).
-      Set to a small number on large repos for faster PR checks.
-      Use 0 on scheduled full scans.
-    required: false
-    default: '0'
 
 runs:
   using: composite
   steps:
-    - name: Run Gitleaks scan
-      uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.8
+    - name: Install Gitleaks
+      shell: bash
       env:
-        GITHUB_TOKEN: ${{ github.token }}
-        # Override GITLEAKS_CONFIG to use custom config if provided
-        GITLEAKS_CONFIG: ${{ inputs.config-path }}
-        # fail-on-leak is handled via GITLEAKS_ENABLE_UPLOAD_ARTIFACT
-        GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
-        GITLEAKS_ENABLE_COMMENTS: 'true'
-      # gitleaks-action exits with non-zero when secrets are found.
-      # If fail-on-leak is false, we allow failure and report only.
-      continue-on-error: ${{ inputs.fail-on-leak == 'false' }}
+        GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+      run: |
+        curl -sSfL \
+          "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+          | tar -xz -C /usr/local/bin gitleaks
+        gitleaks version
 
-    - name: Report scan result
-      if: always()
+    - name: Scan git history for secrets
       shell: bash
       run: |
         if [ "${{ inputs.fail-on-leak }}" = "false" ]; then
-          echo "::notice ::Secret scan complete — failures will not block this run (fail-on-leak=false)"
+          gitleaks detect --source . --log-opts="--all" --no-banner --exit-code 0 \
+            || echo "::notice ::Secret scan complete — failures will not block this run (fail-on-leak=false)"
+        else
+          gitleaks detect --source . --log-opts="--all" --no-banner --exit-code 1
         fi
