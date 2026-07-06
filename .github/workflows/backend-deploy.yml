@@ -1,0 +1,300 @@
+# =============================================================================
+# Reusable: backend deploy — build/attest (main) or promote (tag), migrate, then
+# roll ECS services. Tag-gated prod org-wide: main→develop, v*.*.* tag→production.
+#
+# Product-agnostic: image names derive from `product` (<product>-api/-worker/
+# -migrator). Env-scoped GitHub vars/secrets (ECS_CLUSTER, ECS_API_SERVICE, …)
+# resolve from the job's `environment:`, so the caller passes `secrets: inherit`.
+# See the reference caller in qnsc-infra-template / product repos.
+# =============================================================================
+name: Reusable Backend Deploy
+
+on:
+  workflow_call:
+    inputs:
+      product:      { required: true, type: string }
+      has_worker:   { type: boolean, default: true }
+      has_migrator: { type: boolean, default: true }
+      aws_region:   { type: string, default: "ap-southeast-1" }
+    secrets:
+      AWS_ACCOUNT_ID:       { required: true }
+      SLACK_DEPLOY_WEBHOOK: { required: false }
+
+permissions:
+  contents: read
+
+jobs:
+  context:
+    name: Resolve context
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      environment: ${{ steps.ctx.outputs.environment }}
+      image_tag:   ${{ steps.ctx.outputs.image_tag }}
+      source_tag:  ${{ steps.ctx.outputs.source_tag }}
+    steps:
+      - id: ctx
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "source_tag=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=develop" >> "$GITHUB_OUTPUT"
+            echo "image_tag=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "source_tag=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-push:
+    name: ${{ github.ref_type == 'tag' && 'Promote image to ECR' || 'Build & push to ECR' }}
+    runs-on: ubuntu-latest
+    needs: context
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    env:
+      IMAGE_TAG:  ${{ needs.context.outputs.image_tag }}
+      SOURCE_TAG: ${{ needs.context.outputs.source_tag }}
+      PRODUCT:    ${{ inputs.product }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup AWS OIDC + ECR login
+        id: aws
+        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+        with:
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-ecr-push
+          region: ${{ inputs.aws_region }}
+          ecr-login: 'true'
+
+      # ── PROMOTE (tag) — retag the exact dev-tested images, no rebuild ────────
+      - name: Compute image list
+        id: images
+        run: |
+          LIST="${PRODUCT}-api"
+          [[ "${{ inputs.has_worker }}"   == "true" ]] && LIST="${LIST},${PRODUCT}-worker"
+          [[ "${{ inputs.has_migrator }}" == "true" ]] && LIST="${LIST},${PRODUCT}-migrator"
+          echo "list=$LIST" >> "$GITHUB_OUTPUT"
+
+      - name: Promote images ${{ env.SOURCE_TAG }} → ${{ env.IMAGE_TAG }}
+        if: github.ref_type == 'tag'
+        uses: QNSC-VN/qnsc-ci/actions/promote-ecr-images@v1
+        with:
+          image-names: ${{ steps.images.outputs.list }}
+          source-tag:  ${{ env.SOURCE_TAG }}
+          release-tag: ${{ env.IMAGE_TAG }}
+          region:      ${{ inputs.aws_region }}
+
+      # ── BUILD (main) — one build/scan/attest per service via matrix ──────────
+      - name: Build, scan & attest API
+        if: github.ref_type != 'tag'
+        id: build-api
+        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
+        with:
+          ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
+          image-name: ${{ inputs.product }}-api
+          image-tag: ${{ env.IMAGE_TAG }}
+          extra-tags: latest
+          build-target: api
+          cache-scope: api
+
+      - name: Scan API image
+        if: github.ref_type != 'tag'
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api:${{ env.IMAGE_TAG }}'
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Attest API image
+        if: github.ref_type != 'tag'
+        continue-on-error: true
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        with:
+          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.build-api.outputs.image-digest }}
+
+      - name: Build, scan & attest Worker
+        if: github.ref_type != 'tag' && inputs.has_worker
+        id: build-worker
+        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
+        with:
+          ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
+          image-name: ${{ inputs.product }}-worker
+          image-tag: ${{ env.IMAGE_TAG }}
+          extra-tags: latest
+          build-target: worker
+          cache-scope: worker
+
+      - name: Scan Worker image
+        if: github.ref_type != 'tag' && inputs.has_worker
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker:${{ env.IMAGE_TAG }}'
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Attest Worker image
+        if: github.ref_type != 'tag' && inputs.has_worker
+        continue-on-error: true
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        with:
+          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker@${{ steps.build-worker.outputs.image-digest }}
+
+      - name: Build, scan & attest Migrator
+        if: github.ref_type != 'tag' && inputs.has_migrator
+        id: build-migrator
+        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
+        with:
+          ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
+          image-name: ${{ inputs.product }}-migrator
+          image-tag: ${{ env.IMAGE_TAG }}
+          extra-tags: latest
+          build-target: migrator
+          cache-scope: migrator
+
+      - name: Scan Migrator image
+        if: github.ref_type != 'tag' && inputs.has_migrator
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator:${{ env.IMAGE_TAG }}'
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      - name: Attest Migrator image
+        if: github.ref_type != 'tag' && inputs.has_migrator
+        continue-on-error: true
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        with:
+          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator@${{ steps.build-migrator.outputs.image-digest }}
+
+  deploy:
+    name: Deploy (${{ needs.context.outputs.environment }})
+    runs-on: ubuntu-latest
+    needs: [context, build-push]
+    environment: ${{ needs.context.outputs.environment }}
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      IMAGE_TAG:   ${{ needs.context.outputs.image_tag }}
+      ENVIRONMENT: ${{ needs.context.outputs.environment }}
+    steps:
+      - name: Setup AWS OIDC (deploy role)
+        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+        with:
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-deploy-${{ env.ENVIRONMENT }}
+          region: ${{ inputs.aws_region }}
+
+      - name: Update API task definition to ${{ env.IMAGE_TAG }}
+        id: api-taskdef
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          FAMILY="${{ vars.ECS_CLUSTER }}-${{ vars.ECS_API_SERVICE }}"
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json)
+          NEW_DEF=$(echo "$TASK_DEF" | python3 -c "
+          import sys, json, os
+          td = json.load(sys.stdin); tag = os.environ['IMAGE_TAG']
+          for c in td.get('containerDefinitions', []):
+              if c.get('name') == 'api':
+                  c['image'] = c['image'].rsplit(':', 1)[0] + ':' + tag
+          for f in ['taskDefinitionArn','revision','status','requiresAttributes','placementConstraints','compatibilities','registeredAt','registeredBy']:
+              td.pop(f, None)
+          print(json.dumps(td))")
+          ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Update Worker task definition to ${{ env.IMAGE_TAG }}
+        id: worker-taskdef
+        if: inputs.has_worker
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          FAMILY="${{ vars.ECS_CLUSTER }}-${{ vars.ECS_WORKER_SERVICE }}"
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json)
+          NEW_DEF=$(echo "$TASK_DEF" | python3 -c "
+          import sys, json, os
+          td = json.load(sys.stdin); tag = os.environ['IMAGE_TAG']
+          for c in td.get('containerDefinitions', []):
+              if c.get('name') == 'worker':
+                  c['image'] = c['image'].rsplit(':', 1)[0] + ':' + tag
+          for f in ['taskDefinitionArn','revision','status','requiresAttributes','placementConstraints','compatibilities','registeredAt','registeredBy']:
+              td.pop(f, None)
+          print(json.dumps(td))")
+          ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure RDS is available (dev cost-saver guard)
+        if: env.ENVIRONMENT == 'develop' && vars.RDS_INSTANCE_ID != ''
+        env:
+          AWS_REGION: ${{ inputs.aws_region }}
+          RDS_IDENTIFIER: ${{ vars.RDS_INSTANCE_ID }}
+        run: |
+          STATUS=$(aws rds describe-db-instances --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "not-found")
+          echo "RDS status: $STATUS"
+          if [ "$STATUS" = "stopped" ]; then
+            aws rds start-db-instance --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" > /dev/null
+          elif [ "$STATUS" = "available" ]; then exit 0; fi
+          for i in $(seq 1 32); do
+            sleep 15
+            STATUS=$(aws rds describe-db-instances --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" --query 'DBInstances[0].DBInstanceStatus' --output text)
+            echo "  [${i}/32] $STATUS"
+            [ "$STATUS" = "available" ] && exit 0
+          done
+          echo "Timed out waiting for RDS."; exit 1
+
+      - name: Run database migrations
+        if: inputs.has_migrator
+        uses: QNSC-VN/qnsc-ci/actions/run-db-migration@v1
+        with:
+          cluster: ${{ vars.ECS_CLUSTER }}
+          task-definition: ${{ vars.ECS_MIGRATOR_TASK_DEF }}
+          subnet-ids: ${{ vars.ECS_MIGRATOR_SUBNET }}
+          security-group-ids: ${{ vars.ECS_MIGRATOR_SG }}
+          region: ${{ inputs.aws_region }}
+          environment: ${{ env.ENVIRONMENT }}
+
+      - name: Deploy API service
+        run: |
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_API_SERVICE }}" \
+            --task-definition "${{ steps.api-taskdef.outputs.arn }}" --force-new-deployment --region "${{ inputs.aws_region }}"
+
+      - name: Deploy Worker service
+        if: inputs.has_worker
+        run: |
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_WORKER_SERVICE }}" \
+            --task-definition "${{ steps.worker-taskdef.outputs.arn }}" --force-new-deployment --region "${{ inputs.aws_region }}"
+
+      - name: Verify API deployment
+        run: |
+          AWS_MAX_ATTEMPTS=120 aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_API_SERVICE }}" --region "${{ inputs.aws_region }}"
+          ACTIVE_TASKDEF=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_API_SERVICE }}" --region "${{ inputs.aws_region }}" --query 'services[0].taskDefinition' --output text)
+          ACTIVE_IMAGE=$(aws ecs describe-task-definition --task-definition "$ACTIVE_TASKDEF" --region "${{ inputs.aws_region }}" --query 'taskDefinition.containerDefinitions[0].image' --output text)
+          echo "Active image: $ACTIVE_IMAGE"
+          echo "$ACTIVE_IMAGE" | grep -q "${{ env.IMAGE_TAG }}" || { echo "ERROR: expected tag ${{ env.IMAGE_TAG }}, got $ACTIVE_IMAGE"; exit 1; }
+
+      - name: Post-deploy health check
+        if: vars.APP_URL != ''
+        uses: QNSC-VN/qnsc-ci/actions/post-deploy-health-check@v1
+        with:
+          url: ${{ vars.APP_URL }}/v1/healthz
+          timeout-seconds: '120'
+
+      - name: Notify deploy result
+        if: always()
+        uses: QNSC-VN/qnsc-ci/actions/notify-deploy@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          status: ${{ job.status == 'success' && 'success' || 'failure' }}
+          service: ${{ inputs.product }}-api
+          environment: ${{ env.ENVIRONMENT }}
+          version: ${{ env.IMAGE_TAG }}
