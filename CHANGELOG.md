@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.1.0...v1.1.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **ci:** repair security suite — trivy ref, semgrep via docker, phased enforcement ([70111c0](https://github.com/QNSC-VN/qnsc-ci/commit/70111c0e9e4daf85e776d1da2b341abb2decb7a5))
+* **ci:** repair security suite (trivy ref, semgrep docker, phased enforcement) ([4833532](https://github.com/QNSC-VN/qnsc-ci/commit/48335328de34bc9dd5ac92683b871685556d6135))
+
 ## [1.1.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.0.5...v1.1.0) (2026-07-08)
 
 
