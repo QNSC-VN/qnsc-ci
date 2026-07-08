@@ -11,14 +11,15 @@
 #         product: rally
 #       secrets: inherit
 #
-# All gates here run on the FREE GitHub plan (no GitHub Advanced Security
-# required) and BLOCK on failure, so the calling repo can mark this a
-# required status check in branch protection:
-#   • Trivy       — container image CVEs (CRITICAL blocks; HIGH reported)
-#   • Semgrep     — SAST (OSS, replaces CodeQL which needs GHAS)
-#   • Gitleaks    — committed-secret scan (shared scan-secrets action)
-#   • osv-scanner — dependency CVEs (OSS, replaces dependency-review which
-#                   needs the GHAS Dependency Graph API on private repos)
+# All gates run on the FREE GitHub plan (no GitHub Advanced Security needed).
+# Phased enforcement so the check can be marked required without day-1 debt
+# walling off every PR:
+#   • Trivy       — container image CVEs; CRITICAL BLOCKS (ships in the artifact)
+#   • Gitleaks    — committed-secret scan; BLOCKS
+#   • Semgrep     — SAST (replaces CodeQL); REPORT-ONLY (semgrep_blocking=true to enforce)
+#   • osv-scanner — dependency CVEs (replaces dependency-review); REPORT-ONLY
+#                   (osv_blocking=true to enforce)
+# Triage the first-run Semgrep/osv findings, then flip the two blocking inputs.
 #
 # SARIF uploads to the GitHub Security tab remain `continue-on-error` — they
 # are the only GHAS-gated pieces and no-op on the free plan without failing
@@ -51,10 +52,24 @@ on:
         default: 'p/default p/typescript p/nodejs p/owasp-top-ten'
         type: string
       semgrep_version:
-        description: Semgrep CLI version (pip).
+        description: Semgrep Docker image tag (semgrep/semgrep).
         required: false
         default: '1.97.0'
         type: string
+      semgrep_blocking:
+        description: >
+          Fail the run on Semgrep findings. Phased rollout: start false
+          (report-only), flip true after triaging first-run findings.
+        required: false
+        default: false
+        type: boolean
+      osv_blocking:
+        description: >
+          Fail the run on osv-scanner dependency findings. Phased rollout:
+          start false (report-only), flip true after triaging.
+        required: false
+        default: false
+        type: boolean
       osv_scanner_version:
         description: osv-scanner CLI version (without the "v" prefix, v1.x CLI).
         required: false
@@ -97,7 +112,7 @@ jobs:
 
       # CRITICAL blocks the run. ignore-unfixed drops CVEs with no upstream fix.
       - name: Scan image (CRITICAL — blocks)
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ inputs.product }}-${{ inputs.image_target }}:scan
           format: table
@@ -106,7 +121,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Scan image (HIGH — report only)
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ inputs.product }}-${{ inputs.image_target }}:scan
           format: sarif
@@ -125,7 +140,8 @@ jobs:
 
   # ───────────────────────────────────────────────────────────────────────
   # 2. Semgrep — SAST (OSS, free). Replaces CodeQL (which needs GHAS).
-  #    Blocks on any finding at or above the ruleset's severity.
+  #    Runs via the official Docker image (hermetic; avoids the pip/pkg_resources
+  #    breakage under Python 3.12). Report-only by default (semgrep_blocking).
   # ───────────────────────────────────────────────────────────────────────
   semgrep:
     name: SAST (Semgrep)
@@ -137,21 +153,26 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # --error makes any finding a non-zero exit (blocks). No login/token:
-      # registry packs are fetched anonymously and telemetry is disabled.
-      # `pipx run` avoids PATH issues from `pip install` on the runner.
-      - name: Semgrep scan (blocks on findings)
+      # Registry packs (p/*) fetched anonymously (no login/token); telemetry off.
+      # --error (fail on findings) added only when semgrep_blocking=true.
+      - name: Semgrep scan
         shell: bash
         env:
           SEMGREP_VERSION: ${{ inputs.semgrep_version }}
           SEMGREP_CONFIG: ${{ inputs.semgrep_config }}
-          SEMGREP_SEND_METRICS: 'off'
+          SEMGREP_BLOCKING: ${{ inputs.semgrep_blocking }}
         run: |
           set -euo pipefail
           CONFIG_ARGS=""
           for c in $SEMGREP_CONFIG; do CONFIG_ARGS="$CONFIG_ARGS --config=$c"; done
-          pipx run --spec "semgrep==${SEMGREP_VERSION}" semgrep scan \
-            $CONFIG_ARGS --error --metrics=off --sarif --output=semgrep.sarif .
+          ERROR_FLAG=""
+          [ "${SEMGREP_BLOCKING}" = "true" ] && ERROR_FLAG="--error"
+          docker run --rm -v "$PWD:/src" -w /src -e SEMGREP_SEND_METRICS=off \
+            "semgrep/semgrep:${SEMGREP_VERSION}" \
+            semgrep scan $CONFIG_ARGS $ERROR_FLAG --sarif --output=semgrep.sarif .
+          if [ "${SEMGREP_BLOCKING}" != "true" ]; then
+            echo "::notice::Semgrep report-only (set semgrep_blocking=true to enforce)"
+          fi
 
       - name: Upload Semgrep SARIF (GHAS UI — advisory on free plan)
         if: always()
@@ -204,8 +225,21 @@ jobs:
           chmod +x /usr/local/bin/osv-scanner
           osv-scanner --version
 
-      # Recursively finds every lockfile in the repo (root + apps/*) and
-      # scans it; exit code 1 on any vulnerability found (blocks).
-      - name: osv-scanner (blocks on vulnerable deps)
+      # Recursively finds every lockfile (root + apps/*) and scans it.
+      # Report-only by default; set osv_blocking=true to fail on findings.
+      - name: osv-scanner
         shell: bash
-        run: osv-scanner --recursive .
+        env:
+          OSV_BLOCKING: ${{ inputs.osv_blocking }}
+        run: |
+          set +e
+          osv-scanner --recursive .
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            if [ "${OSV_BLOCKING}" = "true" ]; then
+              echo "::error::osv-scanner found vulnerable dependencies (blocking)"
+              exit "$code"
+            fi
+            echo "::warning::osv-scanner found vulnerable dependencies (report-only; set osv_blocking=true to enforce)"
+          fi
