@@ -80,6 +80,14 @@ on:
         required: false
         default: '22'
         type: string
+      scan_container:
+        description: >
+          Build and Trivy-scan a container image. Set false for Cloudflare-native
+          / static apps that have no Dockerfile — Semgrep + Gitleaks + osv-scanner
+          still run (they are source-based). Products leave this true.
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -90,6 +98,7 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────
   trivy:
     name: Container CVE scan (Trivy)
+    if: ${{ inputs.scan_container }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
