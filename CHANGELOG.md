@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.1.1...v1.2.0) (2026-07-08)
+
+
+### Features
+
+* **security:** add scan_container toggle to skip Trivy for CF-native apps ([16e9ba7](https://github.com/QNSC-VN/qnsc-ci/commit/16e9ba7628bde30e94f1ee38c52d6bf707760edf))
+
+
+### Bug Fixes
+
+* **security:** repair security suite + add scan_container toggle ([ae25363](https://github.com/QNSC-VN/qnsc-ci/commit/ae25363190ba789abc43d05f59167af35e25e89f))
+
 ## [1.1.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.1.0...v1.1.1) (2026-07-08)
 
 
