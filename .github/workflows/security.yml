@@ -1,0 +1,211 @@
+# =============================================================================
+# Reusable Security suite — container CVE · SAST · secrets · dependencies
+#
+# Single source of truth for application security scanning across all QNSC
+# products. Consuming repos call this via `workflow_call` and stay thin:
+#
+#   jobs:
+#     security:
+#       uses: QNSC-VN/qnsc-ci/.github/workflows/security.yml@v1
+#       with:
+#         product: rally
+#       secrets: inherit
+#
+# All gates here run on the FREE GitHub plan (no GitHub Advanced Security
+# required) and BLOCK on failure, so the calling repo can mark this a
+# required status check in branch protection:
+#   • Trivy       — container image CVEs (CRITICAL blocks; HIGH reported)
+#   • Semgrep     — SAST (OSS, replaces CodeQL which needs GHAS)
+#   • Gitleaks    — committed-secret scan (shared scan-secrets action)
+#   • osv-scanner — dependency CVEs (OSS, replaces dependency-review which
+#                   needs the GHAS Dependency Graph API on private repos)
+#
+# SARIF uploads to the GitHub Security tab remain `continue-on-error` — they
+# are the only GHAS-gated pieces and no-op on the free plan without failing
+# the run. They light up automatically after a plan upgrade, no rework.
+# =============================================================================
+name: Reusable Security
+
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: Product name, used for the scan image tag (e.g. rally, opshub).
+        required: true
+        type: string
+      image_target:
+        description: Dockerfile stage to build and scan for CVEs.
+        required: false
+        default: api
+        type: string
+      dockerfile_context:
+        description: Docker build context path.
+        required: false
+        default: .
+        type: string
+      semgrep_config:
+        description: >
+          Space-separated Semgrep rulesets. Registry packs (p/*) are fetched
+          free and require no login/token. Override per product if needed.
+        required: false
+        default: 'p/default p/typescript p/nodejs p/owasp-top-ten'
+        type: string
+      semgrep_version:
+        description: Semgrep CLI version (pip).
+        required: false
+        default: '1.97.0'
+        type: string
+      osv_scanner_version:
+        description: osv-scanner CLI version (without the "v" prefix, v1.x CLI).
+        required: false
+        default: '1.9.2'
+        type: string
+      node_version:
+        description: Node version (only used if a lockfile refresh is needed).
+        required: false
+        default: '22'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  # 1. Trivy — container image CVE scan. CRITICAL blocks; HIGH is reported.
+  # ───────────────────────────────────────────────────────────────────────
+  trivy:
+    name: Container CVE scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: ${{ inputs.dockerfile_context }}
+          target: ${{ inputs.image_target }}
+          push: false
+          load: true
+          tags: ${{ inputs.product }}-${{ inputs.image_target }}:scan
+          cache-from: type=gha,scope=${{ inputs.image_target }}
+
+      # CRITICAL blocks the run. ignore-unfixed drops CVEs with no upstream fix.
+      - name: Scan image (CRITICAL — blocks)
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ${{ inputs.product }}-${{ inputs.image_target }}:scan
+          format: table
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Scan image (HIGH — report only)
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ${{ inputs.product }}-${{ inputs.image_target }}:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF (GHAS UI — advisory on free plan)
+        if: always()
+        continue-on-error: true # requires GitHub Advanced Security (free plan: no-op)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-container
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 2. Semgrep — SAST (OSS, free). Replaces CodeQL (which needs GHAS).
+  #    Blocks on any finding at or above the ruleset's severity.
+  # ───────────────────────────────────────────────────────────────────────
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # --error makes any finding a non-zero exit (blocks). No login/token:
+      # registry packs are fetched anonymously and telemetry is disabled.
+      # `pipx run` avoids PATH issues from `pip install` on the runner.
+      - name: Semgrep scan (blocks on findings)
+        shell: bash
+        env:
+          SEMGREP_VERSION: ${{ inputs.semgrep_version }}
+          SEMGREP_CONFIG: ${{ inputs.semgrep_config }}
+          SEMGREP_SEND_METRICS: 'off'
+        run: |
+          set -euo pipefail
+          CONFIG_ARGS=""
+          for c in $SEMGREP_CONFIG; do CONFIG_ARGS="$CONFIG_ARGS --config=$c"; done
+          pipx run --spec "semgrep==${SEMGREP_VERSION}" semgrep scan \
+            $CONFIG_ARGS --error --metrics=off --sarif --output=semgrep.sarif .
+
+      - name: Upload Semgrep SARIF (GHAS UI — advisory on free plan)
+        if: always()
+        continue-on-error: true # requires GitHub Advanced Security (free plan: no-op)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-sast
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 3. Gitleaks — committed-secret scan over full history (shared action).
+  # ───────────────────────────────────────────────────────────────────────
+  secrets:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: QNSC-VN/qnsc-ci/actions/scan-secrets@v1
+        with:
+          fail-on-leak: 'true'
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 4. osv-scanner — dependency CVE scan (OSS, free).
+  #    Replaces actions/dependency-review-action (needs GHAS on private repos).
+  # ───────────────────────────────────────────────────────────────────────
+  dependencies:
+    name: Dependency CVE scan (osv-scanner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install osv-scanner
+        shell: bash
+        env:
+          OSV_VERSION: ${{ inputs.osv_scanner_version }}
+        run: |
+          set -euo pipefail
+          curl -sSfL \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      # Recursively finds every lockfile in the repo (root + apps/*) and
+      # scans it; exit code 1 on any vulnerability found (blocks).
+      - name: osv-scanner (blocks on vulnerable deps)
+        shell: bash
+        run: osv-scanner --recursive .
