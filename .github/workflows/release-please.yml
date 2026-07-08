@@ -1,0 +1,57 @@
+# =============================================================================
+# Reusable Release Please — auto-creates a "chore(release): vX.Y.Z" PR on
+# every main push, then auto-tags when that PR is merged. The tag triggers
+# the product's prod deploy (approval-gated).
+#
+# Caller:
+#   jobs:
+#     release:
+#       uses: QNSC-VN/qnsc-ci/.github/workflows/release-please.yml@v1
+#       secrets: inherit          # for RELEASE_BOT_PRIVATE_KEY
+#
+# Requires (read from the CALLER's context): var RELEASE_BOT_APP_ID +
+# secret RELEASE_BOT_PRIVATE_KEY. Falls back to github.token if unset.
+# The release-please config file stays product-local (default path below).
+# =============================================================================
+name: Reusable Release Please
+
+on:
+  workflow_call:
+    inputs:
+      config_file:
+        description: Path to the release-please config, relative to the caller repo root.
+        required: false
+        default: release-please-config.json
+        type: string
+      manifest_file:
+        description: Optional path to the release-please manifest file.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # A GitHub App token lets Release Please open PRs and push tags that
+      # trigger downstream workflows (the default GITHUB_TOKEN cannot trigger
+      # other workflows). Falls back to github.token if the app is not set up.
+      # TODO(pin-policy): SHA-pin third-party actions + manage via Renovate.
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        continue-on-error: true
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
+          config-file: ${{ inputs.config_file }}
+          manifest-file: ${{ inputs.manifest_file }}

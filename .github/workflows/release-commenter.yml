@@ -1,0 +1,47 @@
+# =============================================================================
+# Reusable Release Commenter — when a GitHub Release is published, back-comments
+# on every PR merged since the previous release with the version it shipped in,
+# and adds a "released: vX.Y.Z" label. Matches the semantic-release bot UX.
+#
+# Caller:
+#   jobs:
+#     comment:
+#       uses: QNSC-VN/qnsc-ci/.github/workflows/release-commenter.yml@v1
+# =============================================================================
+name: Reusable Release Commenter
+
+on:
+  workflow_call:
+    inputs:
+      comment_template:
+        description: Comment body template (release-commenter placeholders).
+        required: false
+        default: |
+          🎉 This PR is included in **[{{ release-name }}]({{ release-html-url }})** 🎉
+
+          The release is available on [GitHub Releases]({{ release-html-url }}).
+        type: string
+      label_template:
+        description: Label applied to shipped PRs.
+        required: false
+        default: 'released: {{ release-tag-name }}'
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  comment:
+    name: Comment on merged PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # TODO(pin-policy): SHA-pin + Renovate.
+      - uses: apexskier/github-release-commenter@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          comment-template: ${{ inputs.comment_template }}
+          label-template: ${{ inputs.label_template }}
+          create-label: true
