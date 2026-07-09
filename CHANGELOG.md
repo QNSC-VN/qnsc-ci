@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.0...v1.2.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **validate-openapi-contract:** bump oasdiff to v1.22.0 for OpenAPI 3.1 ([#11](https://github.com/QNSC-VN/qnsc-ci/issues/11)) ([200bf53](https://github.com/QNSC-VN/qnsc-ci/commit/200bf53df259aceddf9553a2483bfa89273b2dd5))
+
 ## [1.2.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.1.1...v1.2.0) (2026-07-08)
 
 
