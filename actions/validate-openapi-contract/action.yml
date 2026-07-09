@@ -32,9 +32,9 @@ inputs:
     required: false
     default: 'true'
   oasdiff-version:
-    description: oasdiff release tag to download (e.g. v1.10.24)
+    description: oasdiff release tag to download (e.g. v1.22.0)
     required: false
-    default: v1.10.24
+    default: v1.22.0
   format:
     description: Output format — text or json
     required: false
