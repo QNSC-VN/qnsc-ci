@@ -7,7 +7,8 @@
 #   jobs:
 #     release:
 #       uses: QNSC-VN/qnsc-ci/.github/workflows/release-please.yml@v1
-#       secrets: inherit          # for RELEASE_BOT_PRIVATE_KEY
+#       secrets:
+#         RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
 #
 # Requires (read from the CALLER's context): var RELEASE_BOT_APP_ID +
 # secret RELEASE_BOT_PRIVATE_KEY. Falls back to github.token if unset.
@@ -28,6 +29,12 @@ on:
         required: false
         default: ''
         type: string
+    secrets:
+      RELEASE_BOT_PRIVATE_KEY:
+        description: >-
+          GitHub App private key for the release bot. Optional — when unset the
+          workflow falls back to the default github.token.
+        required: false
 
 permissions:
   contents: write
