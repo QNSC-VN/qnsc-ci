@@ -42,15 +42,14 @@ jobs:
       # A GitHub App token lets Release Please open PRs and push tags that
       # trigger downstream workflows (the default GITHUB_TOKEN cannot trigger
       # other workflows). Falls back to github.token if the app is not set up.
-      # TODO(pin-policy): SHA-pin third-party actions + manage via Renovate.
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349  # v2.2.2
         id: app-token
         continue-on-error: true
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
 
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
         with:
           token: ${{ steps.app-token.outputs.token || github.token }}
           config-file: ${{ inputs.config_file }}
