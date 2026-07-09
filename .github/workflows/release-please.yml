@@ -7,11 +7,14 @@
 #   jobs:
 #     release:
 #       uses: QNSC-VN/qnsc-ci/.github/workflows/release-please.yml@v1
-#       secrets: inherit          # for RELEASE_BOT_PRIVATE_KEY
+#       secrets:
+#         RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
 #
-# Requires (read from the CALLER's context): var RELEASE_BOT_APP_ID +
-# secret RELEASE_BOT_PRIVATE_KEY. Falls back to github.token if unset.
-# The release-please config file stays product-local (default path below).
+# RELEASE_BOT_APP_ID (org/repo variable) is read automatically from the
+# caller's context. RELEASE_BOT_PRIVATE_KEY is passed explicitly (least
+# privilege — no `secrets: inherit`). Both are optional: the workflow falls
+# back to github.token when unset. The release-please config file stays
+# product-local (default path below).
 # =============================================================================
 name: Reusable Release Please
 
@@ -28,6 +31,13 @@ on:
         required: false
         default: ''
         type: string
+    secrets:
+      RELEASE_BOT_PRIVATE_KEY:
+        description: >-
+          Private key for the release-bot GitHub App. Lets Release Please push
+          tags that trigger downstream deploys. Optional — falls back to
+          github.token when omitted.
+        required: false
 
 permissions:
   contents: write
