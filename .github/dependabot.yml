@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Third-party GitHub Actions are SHA-pinned; Dependabot raises a PR (updating
+  # both the SHA and its version comment) whenever a new release is published,
+  # so pins stay fresh through review instead of going stale.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      actions:
+        patterns: ["*"]
