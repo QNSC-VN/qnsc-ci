@@ -102,7 +102,7 @@ jobs:
 
       - name: Scan API image
         if: github.ref_type != 'tag'
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api:${{ env.IMAGE_TAG }}'
           format: table
@@ -131,7 +131,7 @@ jobs:
 
       - name: Scan Worker image
         if: github.ref_type != 'tag' && inputs.has_worker
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker:${{ env.IMAGE_TAG }}'
           format: table
@@ -160,7 +160,7 @@ jobs:
 
       - name: Scan Migrator image
         if: github.ref_type != 'tag' && inputs.has_migrator
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator:${{ env.IMAGE_TAG }}'
           format: table
