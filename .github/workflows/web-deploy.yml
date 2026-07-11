@@ -1,22 +1,33 @@
 # =============================================================================
-# Reusable: web (SPA) deploy — build the Vite bundle, publish to Cloudflare
-# Pages. Tag-gated prod org-wide: main→develop, v*.*.* tag→production.
+# Reusable: web (SPA) deploy — build the Vite/Astro bundle, publish to
+# Cloudflare Pages. One workflow for every QNSC frontend.
 #
-# Cloudflare Pages = zero-egress static hosting with native SPA routing and
-# managed TLS on the custom domain. VITE_* build vars + PAGES_PROJECT/APP_URL
-# are env-scoped GitHub vars, resolved from the job's `environment:` (the caller
-# passes `secrets: inherit`). See the reference caller in the product repos.
+# Two deploy shapes, selected by `single_environment`:
+#   • DUAL  (default, single_environment='') — 2-env products (rally, opshub):
+#       main push → develop (auto),  v*.*.* tag → production (env-gated).
+#   • SINGLE (single_environment='production') — 1-env apps (landing, ceo-suite):
+#       main push → that one environment. No tag/promotion — deploy on merge.
+#       Add a required reviewer on the GitHub Environment to gate the deploy.
+#
+# Package manager, build command, dist path and optional D1 migrations are all
+# inputs, so the same reusable serves pnpm monorepos and standalone npm apps.
+# VITE_*/PAGES_PROJECT/APP_URL stay env-scoped GitHub vars (caller: secrets: inherit).
 # =============================================================================
 name: Reusable · Web Deploy
 
 on:
   workflow_call:
     inputs:
-      product:       { required: true, type: string }
-      web_package:   { type: string, default: "" }          # pnpm filter; defaults to <product>-web
-      web_dist_path: { type: string, default: "apps/web/dist" }
-      node_version:  { type: string, default: "22" }
-      pnpm_version:  { type: string, default: "10.33.2" }
+      product:            { required: true, type: string }
+      package_manager:    { type: string, default: "pnpm" }        # pnpm | npm
+      web_package:        { type: string, default: "" }            # pnpm filter; defaults to <product>-web
+      build_command:      { type: string, default: "" }            # overrides derived build; e.g. "npm run build"
+      web_dist_path:      { type: string, default: "apps/web/dist" }
+      single_environment: { type: string, default: "" }            # set (e.g. production) for 1-env apps
+      run_d1_migrations:  { type: boolean, default: false }        # apply D1 migrations before deploy
+      d1_database:        { type: string, default: "" }            # D1 database name (with run_d1_migrations)
+      node_version:       { type: string, default: "22" }
+      pnpm_version:       { type: string, default: "10.33.2" }
     secrets:
       CLOUDFLARE_API_TOKEN:  { required: true }
       CLOUDFLARE_ACCOUNT_ID: { required: true }
@@ -35,13 +46,22 @@ jobs:
       asset_tag:   ${{ steps.ctx.outputs.asset_tag }}
     steps:
       - id: ctx
+        env:
+          SINGLE_ENV: ${{ inputs.single_environment }}
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            ASSET_TAG="${{ github.ref_name }}"
+          else
+            ASSET_TAG="sha-${{ github.sha }}"
+          fi
+          echo "asset_tag=$ASSET_TAG" >> "$GITHUB_OUTPUT"
+          if [[ -n "$SINGLE_ENV" ]]; then
+            # 1-env app — always the one environment, regardless of trigger.
+            echo "environment=$SINGLE_ENV" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
             echo "environment=production" >> "$GITHUB_OUTPUT"
-            echo "asset_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           else
             echo "environment=develop" >> "$GITHUB_OUTPUT"
-            echo "asset_tag=sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
   deploy:
@@ -59,23 +79,56 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
-      - name: Install dependencies
+      # ── Install (pnpm — org default) ────────────────────────────────────────
+      - name: Install dependencies (pnpm)
+        if: inputs.package_manager == 'pnpm'
         uses: QNSC-VN/qnsc-ci/actions/setup-node-pnpm@v1
         with:
           node-version: ${{ inputs.node_version }}
           pnpm-version: ${{ inputs.pnpm_version }}
 
-      # All VITE_* vars are baked into the bundle at build time (env-scoped).
+      # ── Install (npm — standalone apps like ceo-suite) ─────────────────────
+      - name: Setup Node (npm)
+        if: inputs.package_manager == 'npm'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - name: Install dependencies (npm)
+        if: inputs.package_manager == 'npm'
+        run: npm ci
+
+      # ── Build — VITE_* baked in at build time (env-scoped) ─────────────────
       - name: Build
-        run: pnpm --filter "$WEB_PACKAGE" build
         env:
           VITE_API_URL:         ${{ vars.VITE_API_URL }}
           VITE_APP_ENV:         ${{ vars.VITE_APP_ENV }}
           VITE_ENTRA_TENANT_ID: ${{ vars.VITE_ENTRA_TENANT_ID }}
           VITE_ENTRA_CLIENT_ID: ${{ vars.VITE_ENTRA_CLIENT_ID }}
+          BUILD_COMMAND:  ${{ inputs.build_command }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        run: |
+          set -euo pipefail
+          # build_command wins (standalone/single-package apps pass e.g. "pnpm build"
+          # or "npm run build"); otherwise derive: npm → npm run build; pnpm monorepo
+          # → filter the <product>-web workspace package.
+          if [ -n "$BUILD_COMMAND" ]; then
+            eval "$BUILD_COMMAND"
+          elif [ "$PACKAGE_MANAGER" = "npm" ]; then
+            npm run build
+          else
+            pnpm --filter "$WEB_PACKAGE" build
+          fi
 
-      # wrangler uploads the pre-built dist as a Pages deployment; --branch main
-      # marks it the production deployment for the project.
+      # ── D1 migrations (data apps) — applied before the new code is live ────
+      - name: Apply D1 migrations
+        if: inputs.run_d1_migrations
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler d1 migrations apply "${{ inputs.d1_database }}" --remote
+
+      # ── Publish to Cloudflare Pages ────────────────────────────────────────
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd  # v3
         with:
