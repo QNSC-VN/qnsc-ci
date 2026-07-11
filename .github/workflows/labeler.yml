@@ -9,7 +9,7 @@
 # The label map (.github/labeler.yml) stays PRODUCT-LOCAL — it references
 # each repo's own paths. This workflow only provides the shared plumbing.
 # =============================================================================
-name: Reusable PR Labeler
+name: Reusable · PR Labeler
 
 on:
   workflow_call:

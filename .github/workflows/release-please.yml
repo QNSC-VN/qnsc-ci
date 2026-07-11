@@ -16,7 +16,7 @@
 # back to github.token when unset. The release-please config file stays
 # product-local (default path below).
 # =============================================================================
-name: Reusable Release Please
+name: Reusable · Release
 
 on:
   workflow_call:

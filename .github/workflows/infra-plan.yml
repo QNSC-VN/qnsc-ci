@@ -1,11 +1,13 @@
 # =============================================================================
-# Reusable: OpenTofu plan for changed workspaces, posted back to the PR.
+# Reusable: Infrastructure plan for changed workspaces, posted back to the PR.
+# (OpenTofu under the hood — named by capability, not tool.)
 #
 # Read-only (assumes <product>-github-infra-plan). Detects which infra/live/*
-# dirs changed in the PR and plans each in a matrix, commenting the diff. Mirrors
-# the apply TF_VARs so plan ≈ apply (avoids the "plan passed fewer vars" drift).
+# dirs changed in the PR and plans each in a matrix, commenting the diff. A
+# `tofu fmt` check gates the PR so formatting drift is caught here. Mirrors the
+# apply TF_VARs so plan ≈ apply (avoids the "plan passed fewer vars" drift).
 # =============================================================================
-name: Reusable OpenTofu Plan
+name: Reusable · Infrastructure Plan
 
 on:
   workflow_call:
@@ -43,6 +45,23 @@ jobs:
             | jq -Rc 'select(length>0)' \
             | jq -sc '.')
           echo "workspaces=${CHANGED:-[]}" >> "$GITHUB_OUTPUT"
+
+  fmt:
+    name: tofu fmt check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - uses: QNSC-VN/qnsc-ci/actions/setup-tofu-aws@v1
+        with:
+          # fmt needs no cloud access; assume the read-only plan role for parity.
+          role-arn:     arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-infra-plan
+          aws-region:   ${{ inputs.aws_region }}
+          tofu-version: ${{ inputs.tofu_version }}
+
+      - name: tofu fmt -check
+        run: tofu fmt -check -recursive -diff
 
   plan:
     needs: detect-changes
@@ -86,8 +105,11 @@ jobs:
         id: plan
         working-directory: ${{ matrix.workspace }}
         run: |
+          # The infra-plan OIDC role is read-only and has no DynamoDB write
+          # permission, so it cannot acquire the state lock. Plan never mutates
+          # state, so run lock-free (apply still locks via the admin apply role).
           set +e
-          tofu plan -input=false -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan.txt
+          tofu plan -input=false -lock=false -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan.txt
           echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Post plan to PR
@@ -99,7 +121,7 @@ jobs:
             const ws = '${{ matrix.workspace }}';
             const plan = fs.readFileSync(`${ws}/plan.txt`, 'utf8');
             const MAX = 65000;
-            const body = `### OpenTofu Plan — \`${ws}\`\n\`\`\`hcl\n${plan.length > MAX ? plan.slice(0, MAX) + '\n... (truncated)' : plan}\n\`\`\``;
+            const body = `### Infrastructure Plan — \`${ws}\`\n\`\`\`hcl\n${plan.length > MAX ? plan.slice(0, MAX) + '\n... (truncated)' : plan}\n\`\`\``;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,

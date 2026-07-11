@@ -1,11 +1,13 @@
 # =============================================================================
-# Reusable: web (SPA) deploy — build Vite bundle, sync to S3, invalidate
-# CloudFront. Tag-gated prod org-wide: main→develop, v*.*.* tag→production.
+# Reusable: web (SPA) deploy — build the Vite bundle, publish to Cloudflare
+# Pages. Tag-gated prod org-wide: main→develop, v*.*.* tag→production.
 #
-# VITE_* build vars + S3_BUCKET/CLOUDFRONT_ID/APP_URL are env-scoped GitHub vars,
-# resolved from the job's `environment:` (caller passes `secrets: inherit`).
+# Cloudflare Pages = zero-egress static hosting with native SPA routing and
+# managed TLS on the custom domain. VITE_* build vars + PAGES_PROJECT/APP_URL
+# are env-scoped GitHub vars, resolved from the job's `environment:` (the caller
+# passes `secrets: inherit`). See the reference caller in the product repos.
 # =============================================================================
-name: Reusable Web Deploy
+name: Reusable · Web Deploy
 
 on:
   workflow_call:
@@ -15,16 +17,17 @@ on:
       web_dist_path: { type: string, default: "apps/web/dist" }
       node_version:  { type: string, default: "22" }
       pnpm_version:  { type: string, default: "10.33.2" }
-      aws_region:    { type: string, default: "ap-southeast-1" }
     secrets:
-      AWS_ACCOUNT_ID:       { required: true }
-      SLACK_DEPLOY_WEBHOOK: { required: false }
+      CLOUDFLARE_API_TOKEN:  { required: true }
+      CLOUDFLARE_ACCOUNT_ID: { required: true }
+      SLACK_DEPLOY_WEBHOOK:  { required: false }
 
 permissions:
   contents: read
 
 jobs:
   context:
+    name: Resolve context
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -48,7 +51,6 @@ jobs:
     environment: ${{ needs.context.outputs.environment }}
     timeout-minutes: 20
     permissions:
-      id-token: write
       contents: read
     env:
       ASSET_TAG:   ${{ needs.context.outputs.asset_tag }}
@@ -63,6 +65,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
           pnpm-version: ${{ inputs.pnpm_version }}
 
+      # All VITE_* vars are baked into the bundle at build time (env-scoped).
       - name: Build
         run: pnpm --filter "$WEB_PACKAGE" build
         env:
@@ -71,29 +74,17 @@ jobs:
           VITE_ENTRA_TENANT_ID: ${{ vars.VITE_ENTRA_TENANT_ID }}
           VITE_ENTRA_CLIENT_ID: ${{ vars.VITE_ENTRA_CLIENT_ID }}
 
-      - name: Setup AWS OIDC
-        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+      # wrangler uploads the pre-built dist as a Pages deployment; --branch main
+      # marks it the production deployment for the project.
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd  # v3
         with:
-          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-web-deploy-${{ env.ENVIRONMENT }}
-          region: ${{ inputs.aws_region }}
-
-      - name: Sync dist to S3
-        run: |
-          aws s3 sync "${{ inputs.web_dist_path }}/" "s3://${{ vars.S3_BUCKET }}/" \
-            --delete --exclude "index.html" \
-            --cache-control "public, max-age=31536000, immutable" \
-            --region "${{ inputs.aws_region }}"
-          aws s3 cp "${{ inputs.web_dist_path }}/index.html" "s3://${{ vars.S3_BUCKET }}/index.html" \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --content-type "text/html" \
-            --region "${{ inputs.aws_region }}"
-
-      - name: Invalidate CloudFront cache
-        uses: QNSC-VN/qnsc-ci/actions/cloudfront-invalidate@v1
-        with:
-          distribution-id: ${{ vars.CLOUDFRONT_ID }}
-          region: us-east-1
-          wait: 'true'
+          apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy ${{ inputs.web_dist_path }}
+            --project-name=${{ vars.PAGES_PROJECT }}
+            --branch=main
 
       - name: Post-deploy health check
         if: vars.APP_URL != ''
@@ -102,6 +93,17 @@ jobs:
           url: ${{ vars.APP_URL }}
           expected-status: '200'
           timeout-seconds: '60'
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          echo "### Deploy $STATUS — $ENVIRONMENT" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Asset tag** | \`$ASSET_TAG\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Pages project** | \`${{ vars.PAGES_PROJECT }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Actor** | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify deploy result
         if: always()

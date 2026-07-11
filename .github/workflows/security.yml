@@ -25,7 +25,7 @@
 # are the only GHAS-gated pieces and no-op on the free plan without failing
 # the run. They light up automatically after a plan upgrade, no rework.
 # =============================================================================
-name: Reusable Security
+name: Reusable · Security Scan
 
 on:
   workflow_call:
@@ -121,7 +121,7 @@ jobs:
 
       # CRITICAL blocks the run. ignore-unfixed drops CVEs with no upstream fix.
       - name: Scan image (CRITICAL — blocks)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ inputs.product }}-${{ inputs.image_target }}:scan
           format: table
@@ -130,7 +130,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Scan image (HIGH — report only)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ inputs.product }}-${{ inputs.image_target }}:scan
           format: sarif
@@ -142,7 +142,7 @@ jobs:
       - name: Upload Trivy SARIF (GHAS UI — advisory on free plan)
         if: always()
         continue-on-error: true # requires GitHub Advanced Security (free plan: no-op)
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9  # v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-container
@@ -186,7 +186,7 @@ jobs:
       - name: Upload Semgrep SARIF (GHAS UI — advisory on free plan)
         if: always()
         continue-on-error: true # requires GitHub Advanced Security (free plan: no-op)
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9  # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep-sast

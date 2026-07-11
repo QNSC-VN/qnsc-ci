@@ -8,7 +8,7 @@
 #     comment:
 #       uses: QNSC-VN/qnsc-ci/.github/workflows/release-commenter.yml@v1
 # =============================================================================
-name: Reusable Release Commenter
+name: Reusable · Release Commenter
 
 on:
   workflow_call:
