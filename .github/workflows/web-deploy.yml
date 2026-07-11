@@ -103,8 +103,6 @@ jobs:
         env:
           VITE_API_URL:         ${{ vars.VITE_API_URL }}
           VITE_APP_ENV:         ${{ vars.VITE_APP_ENV }}
-          VITE_ENTRA_TENANT_ID: ${{ vars.VITE_ENTRA_TENANT_ID }}
-          VITE_ENTRA_CLIENT_ID: ${{ vars.VITE_ENTRA_CLIENT_ID }}
           BUILD_COMMAND:  ${{ inputs.build_command }}
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
         run: |
