@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.2...v1.2.3) (2026-07-12)
+
+
+### Bug Fixes
+
+* disable setup-opentofu wrapper so tofu exit codes are honest ([#20](https://github.com/QNSC-VN/qnsc-ci/issues/20)) ([2e6b06d](https://github.com/QNSC-VN/qnsc-ci/commit/2e6b06d43c59146d85e0ce511acb91fb33fe901e))
+
 ## [1.2.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.1...v1.2.2) (2026-07-12)
 
 
