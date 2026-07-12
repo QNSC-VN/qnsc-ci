@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.1...v1.2.2) (2026-07-12)
+
+
+### Bug Fixes
+
+* **ci:** authenticate image builds to GitHub Packages for @qnsc-vn/* ([#18](https://github.com/QNSC-VN/qnsc-ci/issues/18)) ([7c36836](https://github.com/QNSC-VN/qnsc-ci/commit/7c36836ab1da8a86278e8bcd6924e27d71a47e58))
+
 ## [1.2.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.0...v1.2.1) (2026-07-09)
 
 
