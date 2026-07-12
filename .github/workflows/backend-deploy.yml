@@ -54,6 +54,7 @@ jobs:
       id-token: write
       contents: read
       attestations: write
+      packages: read # build-push-ecr pulls private @qnsc-vn/* from GitHub Packages
     env:
       IMAGE_TAG:  ${{ needs.context.outputs.image_tag }}
       SOURCE_TAG: ${{ needs.context.outputs.source_tag }}

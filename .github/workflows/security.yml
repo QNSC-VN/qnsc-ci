@@ -104,6 +104,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      packages: read # pull private @qnsc-vn/* from GitHub Packages during the image build
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -118,6 +119,11 @@ jobs:
           load: true
           tags: ${{ inputs.product }}-${{ inputs.image_target }}:scan
           cache-from: type=gha,scope=${{ inputs.image_target }}
+          # Authenticates the Dockerfile's `pnpm install` against GitHub Packages
+          # for private @qnsc-vn/* deps. Without this the cold build 401s and the
+          # scan only passes on a warm layer cache (non-deterministic gate).
+          secrets: |
+            node_auth_token=${{ secrets.GITHUB_TOKEN }}
 
       # CRITICAL blocks the run. ignore-unfixed drops CVEs with no upstream fix.
       - name: Scan image (CRITICAL — blocks)
