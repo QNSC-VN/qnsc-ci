@@ -39,6 +39,14 @@ inputs:
       multiple images in the same job (e.g. `api`, `worker`, `migrator`).
     required: false
     default: default
+  node-auth-token:
+    description: >
+      Token used by the Dockerfile's `pnpm install` to fetch private
+      @qnsc-vn/* packages from GitHub Packages (mounted as build secret
+      `node_auth_token`). Defaults to the job's GITHUB_TOKEN; the calling job
+      must grant `packages: read`.
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   image-uri:
@@ -83,6 +91,10 @@ runs:
         cache-to:   type=gha,mode=max,scope=${{ inputs.cache-scope }}
         provenance: mode=max   # SLSA L3: full build graph with materials
         sbom: true             # embed SBOM as OCI attestation (CycloneDX)
+        # Authenticates `pnpm install` against GitHub Packages for private
+        # @qnsc-vn/* deps so a cold build (evicted cache) doesn't 401.
+        secrets: |
+          node_auth_token=${{ inputs.node-auth-token }}
 
     - name: Expose image URI and digest
       id: expose
