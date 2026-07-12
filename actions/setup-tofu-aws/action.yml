@@ -22,6 +22,11 @@ runs:
     - uses: opentofu/setup-opentofu@e95ccdd20623115bfd7d47df14a3250d6066a9d0   # v1.0.7
       with:
         tofu_version: ${{ inputs.tofu-version }}
+        # Install the REAL tofu binary, not the default wrapper. The wrapper
+        # captures stdout/stderr/exit-code as step outputs and makes `tofu`
+        # itself exit 0, which silently breaks `-detailed-exitcode`,
+        # `$?` and `${PIPESTATUS[0]}` (apply-gating / plan error detection).
+        tofu_wrapper: false
 
     - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722   # v4.1.0
       with:
