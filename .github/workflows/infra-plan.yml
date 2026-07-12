@@ -86,10 +86,18 @@ jobs:
         run: echo "$VARS_JSON" | jq -r 'to_entries[] | "TF_VAR_\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: Export secret TF_VARs (masked)
-        if: ${{ secrets.tf_secret_vars_json != '' }}
         env:
           SECRETS_JSON: ${{ secrets.tf_secret_vars_json }}
         run: |
+          # NOTE: the `secrets` context is NOT permitted in a step `if:`
+          # (see the Actions context-availability table). Referencing it there
+          # is an invalid-context compile error that rejects the ENTIRE reusable
+          # as a 0-job "startup_failure" for every caller. Gate on the mapped
+          # env var inside the script instead.
+          if [ -z "${SECRETS_JSON}" ]; then
+            echo "No secret TF_VARs to export."
+            exit 0
+          fi
           echo "$SECRETS_JSON" | jq -r '.[]' | while IFS= read -r v; do echo "::add-mask::$v"; done
           echo "$SECRETS_JSON" | jq -r 'to_entries[] | "TF_VAR_\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
