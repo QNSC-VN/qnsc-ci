@@ -12,6 +12,12 @@
 # Package manager, build command, dist path and optional D1 migrations are all
 # inputs, so the same reusable serves pnpm monorepos and standalone npm apps.
 # VITE_*/PAGES_PROJECT/APP_URL stay env-scoped GitHub vars (caller: secrets: inherit).
+#
+# `working_directory` is the CWD for the wrangler deploy. It defaults to the repo
+# root, which suits standalone apps. Monorepos whose web app lives in a subdir
+# (e.g. rally: apps/web) must set it so wrangler discovers that package's
+# file-based Pages Functions (the `functions/` dir is resolved relative to the
+# wrangler CWD). `web_dist_path` is then relative to `working_directory`.
 # =============================================================================
 name: Reusable · Web Deploy
 
@@ -22,7 +28,8 @@ on:
       package_manager:    { type: string, default: "pnpm" }        # pnpm | npm
       web_package:        { type: string, default: "" }            # pnpm filter; defaults to <product>-web
       build_command:      { type: string, default: "" }            # overrides derived build; e.g. "npm run build"
-      web_dist_path:      { type: string, default: "apps/web/dist" }
+      web_dist_path:      { type: string, default: "apps/web/dist" }  # relative to working_directory
+      working_directory:  { type: string, default: "." }            # wrangler CWD; set to the web pkg dir (e.g. apps/web) so file-based Pages Functions resolve
       single_environment: { type: string, default: "" }            # set (e.g. production) for 1-env apps
       run_d1_migrations:  { type: boolean, default: false }        # apply D1 migrations before deploy
       d1_database:        { type: string, default: "" }            # D1 database name (with run_d1_migrations)
@@ -121,6 +128,7 @@ jobs:
       # ── D1 migrations (data apps) — applied before the new code is live ────
       - name: Apply D1 migrations
         if: inputs.run_d1_migrations
+        working-directory: ${{ inputs.working_directory }}
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -132,6 +140,7 @@ jobs:
         with:
           apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ${{ inputs.working_directory }}
           command: >-
             pages deploy ${{ inputs.web_dist_path }}
             --project-name=${{ vars.PAGES_PROJECT }}
