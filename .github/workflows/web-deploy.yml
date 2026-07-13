@@ -79,10 +79,15 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      packages: read   # pull private @scope/* deps from GitHub Packages during pnpm install
     env:
       ASSET_TAG:   ${{ needs.context.outputs.asset_tag }}
       ENVIRONMENT: ${{ needs.context.outputs.environment }}
       WEB_PACKAGE: ${{ inputs.web_package != '' && inputs.web_package || format('{0}-web', inputs.product) }}
+      # pnpm installs the whole workspace at the repo root; monorepos whose
+      # backend depends on private @scope/* packages need this to authenticate
+      # the GitHub Packages registry (.npmrc reads ${NODE_AUTH_TOKEN}).
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
