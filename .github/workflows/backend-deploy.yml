@@ -294,12 +294,32 @@ jobs:
             fi
           done
 
+      - name: Update Migrator task definition to ${{ env.IMAGE_TAG }}
+        id: migrator-taskdef
+        if: inputs.has_migrator
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          FAMILY="${{ vars.ECS_MIGRATOR_TASK_DEF }}"
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json)
+          NEW_DEF=$(echo "$TASK_DEF" | python3 -c "
+          import sys, json, os
+          td = json.load(sys.stdin); tag = os.environ['IMAGE_TAG']
+          for c in td.get('containerDefinitions', []):
+              if c.get('name') == 'migrator':
+                  c['image'] = c['image'].rsplit(':', 1)[0] + ':' + tag
+          for f in ['taskDefinitionArn','revision','status','requiresAttributes','placementConstraints','compatibilities','registeredAt','registeredBy']:
+              td.pop(f, None)
+          print(json.dumps(td))")
+          ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
       - name: Run database migrations
         if: inputs.has_migrator
         uses: QNSC-VN/qnsc-ci/actions/run-db-migration@v1
         with:
           cluster: ${{ vars.ECS_CLUSTER }}
-          task-definition: ${{ vars.ECS_MIGRATOR_TASK_DEF }}
+          task-definition: ${{ steps.migrator-taskdef.outputs.arn }}
           subnet-ids: ${{ vars.ECS_MIGRATOR_SUBNET }}
           security-group-ids: ${{ vars.ECS_MIGRATOR_SG }}
           region: ${{ inputs.aws_region }}
