@@ -369,12 +369,19 @@ jobs:
             --region "${{ inputs.aws_region }}"
 
       - name: Verify API deployment
+        id: verify
         run: |
           AWS_MAX_ATTEMPTS=120 aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_API_SERVICE }}" --region "${{ inputs.aws_region }}"
           ACTIVE_TASKDEF=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_API_SERVICE }}" --region "${{ inputs.aws_region }}" --query 'services[0].taskDefinition' --output text)
           ACTIVE_IMAGE=$(aws ecs describe-task-definition --task-definition "$ACTIVE_TASKDEF" --region "${{ inputs.aws_region }}" --query 'taskDefinition.containerDefinitions[0].image' --output text)
           echo "Active image: $ACTIVE_IMAGE"
-          echo "$ACTIVE_IMAGE" | grep -q "${{ env.IMAGE_TAG }}" || { echo "ERROR: expected tag ${{ env.IMAGE_TAG }}, got $ACTIVE_IMAGE"; exit 1; }
+          if echo "$ACTIVE_IMAGE" | grep -q "${{ env.IMAGE_TAG }}"; then
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=rollback" >> "$GITHUB_OUTPUT"
+            echo "::error ::Deployment did not converge on ${{ env.IMAGE_TAG }} — circuit breaker rolled back to $ACTIVE_IMAGE"
+            exit 1
+          fi
 
       - name: Post-deploy health check
         if: vars.APP_URL != ''
@@ -400,7 +407,7 @@ jobs:
         uses: QNSC-VN/qnsc-ci/actions/notify-deploy@v1
         with:
           webhook-url: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
-          status: ${{ job.status == 'success' && 'success' || 'failure' }}
+          status: ${{ job.status == 'success' && 'success' || (steps.verify.outputs.outcome == 'rollback' && 'rollback' || 'failure') }}
           service: ${{ inputs.product }}-api
           environment: ${{ env.ENVIRONMENT }}
           version: ${{ env.IMAGE_TAG }}
