@@ -88,6 +88,25 @@ jobs:
           release-tag: ${{ env.IMAGE_TAG }}
           region:      ${{ inputs.aws_region }}
 
+      - name: Resolve promoted API digest
+        if: github.ref_type == 'tag'
+        id: promoted-api-digest
+        env:
+          REGION: ${{ inputs.aws_region }}
+          RELEASE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          digest=$(aws ecr describe-images --repository-name "${{ inputs.product }}-api" \
+            --image-ids imageTag="$RELEASE_TAG" --region "$REGION" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest promoted API image
+        if: github.ref_type == 'tag'
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        with:
+          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.promoted-api-digest.outputs.digest }}
+
       # ── BUILD (main) — one build/scan/attest per service via matrix ──────────
       - name: Build, scan & attest API
         if: github.ref_type != 'tag'
@@ -113,7 +132,6 @@ jobs:
 
       - name: Attest API image
         if: github.ref_type != 'tag'
-        continue-on-error: true
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.build-api.outputs.image-digest }}
@@ -142,7 +160,6 @@ jobs:
 
       - name: Attest Worker image
         if: github.ref_type != 'tag' && inputs.has_worker
-        continue-on-error: true
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker@${{ steps.build-worker.outputs.image-digest }}
@@ -171,7 +188,6 @@ jobs:
 
       - name: Attest Migrator image
         if: github.ref_type != 'tag' && inputs.has_migrator
-        continue-on-error: true
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator@${{ steps.build-migrator.outputs.image-digest }}
@@ -324,6 +340,18 @@ jobs:
           security-group-ids: ${{ vars.ECS_MIGRATOR_SG }}
           region: ${{ inputs.aws_region }}
           environment: ${{ env.ENVIRONMENT }}
+
+      - name: Verify image attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGION: ${{ inputs.aws_region }}
+        run: |
+          set -euo pipefail
+          REGISTRY=$(aws ecr describe-registry --region "$REGION" --query registryId --output text).dkr.ecr.${REGION}.amazonaws.com
+          digest=$(aws ecr describe-images --repository-name "${{ inputs.product }}-api" \
+            --image-ids imageTag="${{ env.IMAGE_TAG }}" --region "$REGION" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          gh attestation verify "oci://${REGISTRY}/${{ inputs.product }}-api@${digest}" --repo "${{ github.repository }}"
 
       - name: Deploy API service
         run: |
