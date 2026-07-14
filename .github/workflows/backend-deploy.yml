@@ -308,13 +308,17 @@ jobs:
       - name: Deploy API service
         run: |
           aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_API_SERVICE }}" \
-            --task-definition "${{ steps.api-taskdef.outputs.arn }}" --force-new-deployment --region "${{ inputs.aws_region }}"
+            --task-definition "${{ steps.api-taskdef.outputs.arn }}" --force-new-deployment \
+            --deployment-configuration '{"deploymentCircuitBreaker":{"enable":true,"rollback":true}}' \
+            --region "${{ inputs.aws_region }}"
 
       - name: Deploy Worker service
         if: inputs.has_worker
         run: |
           aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_WORKER_SERVICE }}" \
-            --task-definition "${{ steps.worker-taskdef.outputs.arn }}" --force-new-deployment --region "${{ inputs.aws_region }}"
+            --task-definition "${{ steps.worker-taskdef.outputs.arn }}" --force-new-deployment \
+            --deployment-configuration '{"deploymentCircuitBreaker":{"enable":true,"rollback":true}}' \
+            --region "${{ inputs.aws_region }}"
 
       - name: Verify API deployment
         run: |
