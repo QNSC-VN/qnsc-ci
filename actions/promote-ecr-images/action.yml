@@ -47,14 +47,24 @@ runs:
           repo="${repo// /}"  # trim whitespace
           echo "── Promoting $repo: ${SOURCE_TAG} → ${RELEASE_TAG}"
 
-          MANIFEST=$(aws ecr batch-get-image \
-            --repository-name "$repo" \
-            --image-ids imageTag="${SOURCE_TAG}" \
-            --region "${REGION}" \
-            --query 'images[0].imageManifest' --output text)
+          MANIFEST=""
+          # The release-commit's develop build may still be pushing sha-<sha> when this
+          # prod promote runs (same merge triggers both). Poll up to ~10 min.
+          for attempt in $(seq 1 40); do
+            MANIFEST=$(aws ecr batch-get-image \
+              --repository-name "$repo" \
+              --image-ids imageTag="${SOURCE_TAG}" \
+              --region "${REGION}" \
+              --query 'images[0].imageManifest' --output text 2>/dev/null || echo "")
+            if [[ -n "$MANIFEST" && "$MANIFEST" != "None" ]]; then
+              break
+            fi
+            echo "  [${attempt}/40] $repo:${SOURCE_TAG} not in ECR yet — waiting for the develop build (15s)…"
+            sleep 15
+          done
 
           if [[ -z "$MANIFEST" || "$MANIFEST" == "None" ]]; then
-            echo "ERROR: $repo:${SOURCE_TAG} not found in ECR."
+            echo "ERROR: $repo:${SOURCE_TAG} not found in ECR after ~10 min."
             echo "The commit must be merged to main and deployed to develop before tagging a release."
             exit 1
           fi

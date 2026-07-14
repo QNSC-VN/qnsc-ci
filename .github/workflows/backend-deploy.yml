@@ -88,6 +88,25 @@ jobs:
           release-tag: ${{ env.IMAGE_TAG }}
           region:      ${{ inputs.aws_region }}
 
+      - name: Resolve promoted API digest
+        if: github.ref_type == 'tag'
+        id: promoted-api-digest
+        env:
+          REGION: ${{ inputs.aws_region }}
+          RELEASE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          digest=$(aws ecr describe-images --repository-name "${{ inputs.product }}-api" \
+            --image-ids imageTag="$RELEASE_TAG" --region "$REGION" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest promoted API image
+        if: github.ref_type == 'tag'
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        with:
+          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.promoted-api-digest.outputs.digest }}
+
       # ── BUILD (main) — one build/scan/attest per service via matrix ──────────
       - name: Build, scan & attest API
         if: github.ref_type != 'tag'
@@ -113,7 +132,6 @@ jobs:
 
       - name: Attest API image
         if: github.ref_type != 'tag'
-        continue-on-error: true
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.build-api.outputs.image-digest }}
@@ -142,7 +160,6 @@ jobs:
 
       - name: Attest Worker image
         if: github.ref_type != 'tag' && inputs.has_worker
-        continue-on-error: true
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker@${{ steps.build-worker.outputs.image-digest }}
@@ -171,7 +188,6 @@ jobs:
 
       - name: Attest Migrator image
         if: github.ref_type != 'tag' && inputs.has_migrator
-        continue-on-error: true
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator@${{ steps.build-migrator.outputs.image-digest }}
@@ -294,35 +310,76 @@ jobs:
             fi
           done
 
+      - name: Update Migrator task definition to ${{ env.IMAGE_TAG }}
+        id: migrator-taskdef
+        if: inputs.has_migrator
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          FAMILY="${{ vars.ECS_MIGRATOR_TASK_DEF }}"
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json)
+          NEW_DEF=$(echo "$TASK_DEF" | python3 -c "
+          import sys, json, os
+          td = json.load(sys.stdin); tag = os.environ['IMAGE_TAG']
+          for c in td.get('containerDefinitions', []):
+              if c.get('name') == 'migrator':
+                  c['image'] = c['image'].rsplit(':', 1)[0] + ':' + tag
+          for f in ['taskDefinitionArn','revision','status','requiresAttributes','placementConstraints','compatibilities','registeredAt','registeredBy']:
+              td.pop(f, None)
+          print(json.dumps(td))")
+          ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
       - name: Run database migrations
         if: inputs.has_migrator
         uses: QNSC-VN/qnsc-ci/actions/run-db-migration@v1
         with:
           cluster: ${{ vars.ECS_CLUSTER }}
-          task-definition: ${{ vars.ECS_MIGRATOR_TASK_DEF }}
+          task-definition: ${{ steps.migrator-taskdef.outputs.arn }}
           subnet-ids: ${{ vars.ECS_MIGRATOR_SUBNET }}
           security-group-ids: ${{ vars.ECS_MIGRATOR_SG }}
           region: ${{ inputs.aws_region }}
           environment: ${{ env.ENVIRONMENT }}
 
+      - name: Verify image attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGION: ${{ inputs.aws_region }}
+        run: |
+          set -euo pipefail
+          REGISTRY=$(aws ecr describe-registry --region "$REGION" --query registryId --output text).dkr.ecr.${REGION}.amazonaws.com
+          digest=$(aws ecr describe-images --repository-name "${{ inputs.product }}-api" \
+            --image-ids imageTag="${{ env.IMAGE_TAG }}" --region "$REGION" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          gh attestation verify "oci://${REGISTRY}/${{ inputs.product }}-api@${digest}" --repo "${{ github.repository }}"
+
       - name: Deploy API service
         run: |
           aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_API_SERVICE }}" \
-            --task-definition "${{ steps.api-taskdef.outputs.arn }}" --force-new-deployment --region "${{ inputs.aws_region }}"
+            --task-definition "${{ steps.api-taskdef.outputs.arn }}" --force-new-deployment \
+            --region "${{ inputs.aws_region }}"
 
       - name: Deploy Worker service
         if: inputs.has_worker
         run: |
           aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_WORKER_SERVICE }}" \
-            --task-definition "${{ steps.worker-taskdef.outputs.arn }}" --force-new-deployment --region "${{ inputs.aws_region }}"
+            --task-definition "${{ steps.worker-taskdef.outputs.arn }}" --force-new-deployment \
+            --region "${{ inputs.aws_region }}"
 
       - name: Verify API deployment
+        id: verify
         run: |
           AWS_MAX_ATTEMPTS=120 aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_API_SERVICE }}" --region "${{ inputs.aws_region }}"
           ACTIVE_TASKDEF=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_API_SERVICE }}" --region "${{ inputs.aws_region }}" --query 'services[0].taskDefinition' --output text)
           ACTIVE_IMAGE=$(aws ecs describe-task-definition --task-definition "$ACTIVE_TASKDEF" --region "${{ inputs.aws_region }}" --query 'taskDefinition.containerDefinitions[0].image' --output text)
           echo "Active image: $ACTIVE_IMAGE"
-          echo "$ACTIVE_IMAGE" | grep -q "${{ env.IMAGE_TAG }}" || { echo "ERROR: expected tag ${{ env.IMAGE_TAG }}, got $ACTIVE_IMAGE"; exit 1; }
+          if echo "$ACTIVE_IMAGE" | grep -q "${{ env.IMAGE_TAG }}"; then
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=rollback" >> "$GITHUB_OUTPUT"
+            echo "::error ::Deployment did not converge on ${{ env.IMAGE_TAG }} — circuit breaker rolled back to $ACTIVE_IMAGE"
+            exit 1
+          fi
 
       - name: Post-deploy health check
         if: vars.APP_URL != ''
@@ -348,7 +405,7 @@ jobs:
         uses: QNSC-VN/qnsc-ci/actions/notify-deploy@v1
         with:
           webhook-url: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
-          status: ${{ job.status == 'success' && 'success' || 'failure' }}
+          status: ${{ job.status == 'success' && 'success' || (steps.verify.outputs.outcome == 'rollback' && 'rollback' || 'failure') }}
           service: ${{ inputs.product }}-api
           environment: ${{ env.ENVIRONMENT }}
           version: ${{ env.IMAGE_TAG }}
