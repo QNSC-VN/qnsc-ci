@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.3...v1.3.0) (2026-07-14)
+
+
+### Features
+
+* **deploy:** circuit-breaker rollback, migrator pinning, verified attestation ([#27](https://github.com/QNSC-VN/qnsc-ci/issues/27)) ([6667aa5](https://github.com/QNSC-VN/qnsc-ci/commit/6667aa5b0330fc5a3272b264568d094fea51b217))
+* **web-deploy:** add working_directory input for monorepo Pages Functions ([#24](https://github.com/QNSC-VN/qnsc-ci/issues/24)) ([6ae6c5d](https://github.com/QNSC-VN/qnsc-ci/commit/6ae6c5d1988d3090c2f9204c5355df0daba0c3fb))
+
+
+### Bug Fixes
+
+* **infra-plan:** stop referencing secrets context in a step if ([#22](https://github.com/QNSC-VN/qnsc-ci/issues/22)) ([af99dce](https://github.com/QNSC-VN/qnsc-ci/commit/af99dce42157e868a7d4e7b63ee97831f4b021a0))
+* **run-db-migration:** pin internal ecs-run-task to [@v1](https://github.com/v1) for tag-sync updates ([#25](https://github.com/QNSC-VN/qnsc-ci/issues/25)) ([ba4658d](https://github.com/QNSC-VN/qnsc-ci/commit/ba4658d9ae1ec4554bbebec53e79bdd824bfe474))
+* **web-deploy:** grant packages:read + NODE_AUTH_TOKEN so pnpm install can pull private @scope/* deps ([08617c2](https://github.com/QNSC-VN/qnsc-ci/commit/08617c2f4d9946c28c98694e93e45def45ea658c))
+
 ## [1.2.3](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.2...v1.2.3) (2026-07-12)
 
 
