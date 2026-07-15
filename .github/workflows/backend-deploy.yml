@@ -50,6 +50,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: context
     timeout-minutes: 45
+    # Expose the attested API image digest so the deploy job can verify the
+    # attestation without re-resolving it via `aws ecr describe-images`
+    # (which the deploy role is intentionally not granted). On main it comes
+    # from the fresh build; on a tag from the promoted image.
+    outputs:
+      api_digest: ${{ steps.build-api.outputs.image-digest || steps.promoted-api-digest.outputs.digest }}
     permissions:
       id-token: write
       contents: read
@@ -344,14 +350,14 @@ jobs:
       - name: Verify image attestation
         env:
           GH_TOKEN: ${{ github.token }}
-          REGION: ${{ inputs.aws_region }}
+          # registryId == AWS account id; reuse the same secret used for the
+          # deploy role ARN above (single source, no ecr:DescribeRegistry).
+          REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ inputs.aws_region }}.amazonaws.com
+          # digest resolved & attested in build-push (no ecr:DescribeImages).
+          DIGEST: ${{ needs.build-push.outputs.api_digest }}
         run: |
           set -euo pipefail
-          REGISTRY=$(aws ecr describe-registry --region "$REGION" --query registryId --output text).dkr.ecr.${REGION}.amazonaws.com
-          digest=$(aws ecr describe-images --repository-name "${{ inputs.product }}-api" \
-            --image-ids imageTag="${{ env.IMAGE_TAG }}" --region "$REGION" \
-            --query 'imageDetails[0].imageDigest' --output text)
-          gh attestation verify "oci://${REGISTRY}/${{ inputs.product }}-api@${digest}" --repo "${{ github.repository }}"
+          gh attestation verify "oci://${REGISTRY}/${{ inputs.product }}-api@${DIGEST}" --repo "${{ github.repository }}"
 
       - name: Deploy API service
         run: |
