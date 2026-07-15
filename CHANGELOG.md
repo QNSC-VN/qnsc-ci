@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.0...v1.3.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* **backend-deploy:** verify attestation without ecr:DescribeRegistry/DescribeImages ([#28](https://github.com/QNSC-VN/qnsc-ci/issues/28)) ([e99aef9](https://github.com/QNSC-VN/qnsc-ci/commit/e99aef9eb83a1c12950c128609353cd20e694565))
+
 ## [1.3.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.2.3...v1.3.0) (2026-07-14)
 
 
