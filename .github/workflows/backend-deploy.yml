@@ -360,7 +360,13 @@ jobs:
           DIGEST: ${{ needs.build-push.outputs.api_digest }}
         run: |
           set -euo pipefail
-          gh attestation verify "oci://${REGISTRY}/${{ inputs.product }}-api@${DIGEST}" --repo "${{ github.repository }}"
+          # The attestation is signed by THIS reusable workflow (the trusted
+          # builder), not the calling repo, so the signer identity must be
+          # pinned with --signer-workflow (required for reusable-workflow
+          # attestations) while --repo still scopes the source to the caller.
+          gh attestation verify "oci://${REGISTRY}/${{ inputs.product }}-api@${DIGEST}" \
+            --repo "${{ github.repository }}" \
+            --signer-workflow "${{ github.repository_owner }}/qnsc-ci/.github/workflows/backend-deploy.yml"
 
       - name: Deploy API service
         run: |
