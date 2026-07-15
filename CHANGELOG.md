@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.2...v1.3.3) (2026-07-15)
+
+
+### Bug Fixes
+
+* **backend-deploy:** pin signer-workflow when verifying attestation ([#32](https://github.com/QNSC-VN/qnsc-ci/issues/32)) ([b480fcd](https://github.com/QNSC-VN/qnsc-ci/commit/b480fcd0fd5518db4766d36ab0a591fab4ddbf0f))
+
 ## [1.3.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.1...v1.3.2) (2026-07-15)
 
 
