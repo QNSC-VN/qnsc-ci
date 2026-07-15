@@ -216,6 +216,9 @@ jobs:
         with:
           role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-deploy-${{ env.ENVIRONMENT }}
           region: ${{ inputs.aws_region }}
+          # ECR docker login so `gh attestation verify` (below) can pull the
+          # image manifest from the private registry; otherwise it 401s.
+          ecr-login: 'true'
 
       - name: Update API task definition to ${{ env.IMAGE_TAG }}
         id: api-taskdef
