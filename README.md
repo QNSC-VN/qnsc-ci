@@ -383,7 +383,14 @@ Job needs `permissions: attestations: write, id-token: write`.
 | `push-to-registry` | `true` | Store attestation as OCI artefact |
 | `github-token` | `${{ github.token }}` | Token with `attestations: write` |
 
-Verify later with: `gh attestation verify oci://registry/name:tag --repo owner/repo`
+Verify later with (attestations are signed by this reusable workflow — the
+trusted builder — so pin the signer identity, not just the source repo):
+
+```bash
+gh attestation verify oci://registry/name@sha256:… \
+  --repo <owner>/<consumer-repo> \
+  --signer-workflow <owner>/qnsc-ci/.github/workflows/backend-deploy.yml
+```
 
 ---
 
