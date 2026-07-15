@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.1...v1.3.2) (2026-07-15)
+
+
+### Bug Fixes
+
+* **backend-deploy:** ECR login in deploy job for attestation verify ([#30](https://github.com/QNSC-VN/qnsc-ci/issues/30)) ([ca0e33c](https://github.com/QNSC-VN/qnsc-ci/commit/ca0e33c043b7799574c3712b8bf1644ce01cd85a))
+
 ## [1.3.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.0...v1.3.1) (2026-07-15)
 
 
