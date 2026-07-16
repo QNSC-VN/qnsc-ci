@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.4](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.3...v1.3.4) (2026-07-16)
+
+
+### Bug Fixes
+
+* use correct apexskier placeholder syntax in release-commenter ([#34](https://github.com/QNSC-VN/qnsc-ci/issues/34)) ([3364f86](https://github.com/QNSC-VN/qnsc-ci/commit/3364f86150d6df19ed1397d327cde3468f642f83))
+
 ## [1.3.3](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.2...v1.3.3) (2026-07-15)
 
 
