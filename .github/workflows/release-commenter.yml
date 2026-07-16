@@ -14,17 +14,20 @@ on:
   workflow_call:
     inputs:
       comment_template:
-        description: Comment body template (release-commenter placeholders).
+        description: >-
+          Comment body template. Uses apexskier/github-release-commenter
+          placeholders: {release_link} (markdown link to the release),
+          {release_name}, {release_tag}.
         required: false
         default: |
-          🎉 This PR is included in **[{{ release-name }}]({{ release-html-url }})** 🎉
+          🎉 This PR is included in {release_link} 🎉
 
-          The release is available on [GitHub Releases]({{ release-html-url }}).
+          The release is available on GitHub Releases: {release_link}.
         type: string
       label_template:
-        description: Label applied to shipped PRs.
+        description: Label applied to shipped PRs. Supports {release_tag}, {release_name}.
         required: false
-        default: 'released: {{ release-tag-name }}'
+        default: 'released: {release_tag}'
         type: string
 
 permissions:
