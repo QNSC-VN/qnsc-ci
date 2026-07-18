@@ -13,6 +13,17 @@
 # inputs, so the same reusable serves pnpm monorepos and standalone npm apps.
 # VITE_*/PAGES_PROJECT/APP_URL stay env-scoped GitHub vars (caller: secrets: inherit).
 #
+# Data-app safety knobs (all opt-in, default off — no effect on static sites):
+#   • backup_before_migrate — export D1 to a restore point BEFORE migrating
+#       (90-day artifact always; + R2 archive when d1_backup_bucket is set).
+#       Blocking: no backup ⇒ no migrate.
+#   • require_health_check   — refuse to deploy if APP_URL is unset (a data app
+#       must be verifiable post-deploy, not shipped blind).
+#   • wrangler_version       — pinned wrangler for reproducible D1 export/migrate
+#       (never floating `npx wrangler` latest).
+# Migrations are forward-only and NOT atomic with the publish — keep them
+# backward-compatible (expand/contract).
+#
 # `working_directory` is the CWD for the wrangler deploy. It defaults to the repo
 # root, which suits standalone apps. Monorepos whose web app lives in a subdir
 # (e.g. rally: apps/web) must set it so wrangler discovers that package's
@@ -33,12 +44,23 @@ on:
       single_environment: { type: string, default: "" }            # set (e.g. production) for 1-env apps
       run_d1_migrations:  { type: boolean, default: false }        # apply D1 migrations before deploy
       d1_database:        { type: string, default: "" }            # D1 database name (with run_d1_migrations)
+      backup_before_migrate: { type: boolean, default: false }     # export D1 to a restore point BEFORE migrating (data apps)
+      d1_backup_bucket:   { type: string, default: "" }            # R2 bucket for durable backup archive; empty = GitHub artifact only
+      require_health_check:  { type: boolean, default: false }     # fail the deploy if APP_URL is unset (no post-deploy verification possible)
+      wrangler_version:   { type: string, default: "4.107.0" }     # pin wrangler for reproducible D1 export/migrate (never floating latest)
       node_version:       { type: string, default: "22" }
       pnpm_version:       { type: string, default: "10.33.2" }
     secrets:
       CLOUDFLARE_API_TOKEN:  { required: true }
       CLOUDFLARE_ACCOUNT_ID: { required: true }
       SLACK_DEPLOY_WEBHOOK:  { required: false }
+
+# Safe-by-default at the shared layer (callers also set their own group). Never
+# cancel a running web deploy — a half-applied Pages publish / D1 migration is
+# worse than a queued one.
+concurrency:
+  group: web-deploy-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -91,6 +113,16 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
+      # ── Pre-flight — fail fast BEFORE build/migrate/publish ────────────────
+      # A data app that requires post-deploy verification must have somewhere to
+      # verify. Catch a missing APP_URL up front rather than silently shipping
+      # unverified (the health-check step below is skipped when APP_URL is empty).
+      - name: Pre-flight — required config
+        if: inputs.require_health_check && vars.APP_URL == ''
+        run: |
+          echo "::error ::require_health_check=true but the APP_URL env var is unset for '${{ needs.context.outputs.environment }}'. Set it so the post-deploy health check can run; refusing to deploy unverified." >&2
+          exit 1
+
       # ── Install (pnpm — org default) ────────────────────────────────────────
       - name: Install dependencies (pnpm)
         if: inputs.package_manager == 'pnpm'
@@ -130,14 +162,58 @@ jobs:
             pnpm --filter "$WEB_PACKAGE" build
           fi
 
+      # ── D1 backup — capture a restore point BEFORE any schema change ───────
+      # Migrations against --remote are irreversible; a data app must have a
+      # pre-migration export to roll back to. The export always lands as a
+      # 90-day GitHub artifact (works with zero extra infra); when a durable R2
+      # bucket is provided it is also archived there. Blocking on purpose: no
+      # backup ⇒ no migrate. wrangler is version-pinned for reproducibility.
+      - name: Export D1 (pre-migration backup)
+        if: inputs.run_d1_migrations && inputs.backup_before_migrate
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          FILE="d1-backup-${{ inputs.d1_database }}-${ASSET_TAG//\//-}.sql"
+          echo "D1_BACKUP_FILE=$FILE" >> "$GITHUB_ENV"
+          npx --yes wrangler@${{ inputs.wrangler_version }} d1 export "${{ inputs.d1_database }}" --remote --output "$FILE"
+          test -s "$FILE" || { echo "::error ::D1 export produced an empty file — aborting before migrate." >&2; exit 1; }
+          echo "Exported ${{ inputs.d1_database }} → $FILE ($(wc -c <"$FILE") bytes)"
+
+      - name: Upload D1 backup (artifact)
+        if: inputs.run_d1_migrations && inputs.backup_before_migrate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: d1-backup-${{ inputs.product }}-${{ needs.context.outputs.asset_tag }}
+          path: ${{ inputs.working_directory }}/${{ env.D1_BACKUP_FILE }}
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Archive D1 backup to R2
+        if: inputs.run_d1_migrations && inputs.backup_before_migrate && inputs.d1_backup_bucket != ''
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          KEY="${{ inputs.product }}/${{ env.ENVIRONMENT }}/${{ env.D1_BACKUP_FILE }}"
+          npx --yes wrangler@${{ inputs.wrangler_version }} r2 object put "${{ inputs.d1_backup_bucket }}/${KEY}" --file "${{ env.D1_BACKUP_FILE }}" --remote
+          echo "Archived backup → r2://${{ inputs.d1_backup_bucket }}/${KEY}"
+
       # ── D1 migrations (data apps) — applied before the new code is live ────
+      # Forward-only + not atomic with the publish below: migrations MUST be
+      # backward-compatible (expand/contract) so old code keeps working if the
+      # publish step fails after this succeeds.
       - name: Apply D1 migrations
         if: inputs.run_d1_migrations
         working-directory: ${{ inputs.working_directory }}
         env:
           CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler d1 migrations apply "${{ inputs.d1_database }}" --remote
+        run: npx --yes wrangler@${{ inputs.wrangler_version }} d1 migrations apply "${{ inputs.d1_database }}" --remote
 
       # ── Publish to Cloudflare Pages ────────────────────────────────────────
       - name: Deploy to Cloudflare Pages
