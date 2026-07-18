@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.4...v1.4.0) (2026-07-18)
+
+
+### Features
+
+* **web-deploy:** D1 pre-migration backup, health-check gate, pinned wrangler ([#36](https://github.com/QNSC-VN/qnsc-ci/issues/36)) ([8eecf04](https://github.com/QNSC-VN/qnsc-ci/commit/8eecf04f27b25da80f1850ac6a9982e99159bae2))
+
 ## [1.3.4](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.3...v1.3.4) (2026-07-16)
 
 
