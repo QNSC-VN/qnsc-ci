@@ -216,12 +216,26 @@ jobs:
         run: npx --yes wrangler@${{ inputs.wrangler_version }} d1 migrations apply "${{ inputs.d1_database }}" --remote
 
       # ── Publish to Cloudflare Pages ────────────────────────────────────────
+      # wrangler-action auto-detects the package manager by looking for a
+      # lockfile INSIDE workingDirectory. Monorepo callers (rally, opshub) set
+      # working_directory to the web package's own subdir (e.g. apps/web),
+      # which has no lockfile of its own — the pnpm lockfile lives at the repo
+      # root. Detection then falls through to npm, whose `npm install`/`npx`
+      # bootstrap of wrangler walks the pnpm-managed node_modules tree it
+      # doesn't understand and fails trying to run a transitive dependency's
+      # postinstall script (e.g. "sh: run-s: not found"). packageManager is
+      # only read for THIS install-wrangler bootstrap, not the app's own build
+      # (already done above, in the "Build" step) — inputs.package_manager is
+      # always exactly "pnpm" or "npm" (see the input schema above), both
+      # values this action accepts directly, so this is correct for standalone
+      # npm callers (ceo-suite) too, not just pnpm monorepos.
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0  # v4.0.0
         with:
           apiToken:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: ${{ inputs.working_directory }}
+          packageManager: ${{ inputs.package_manager }}
           command: >-
             pages deploy ${{ inputs.web_dist_path }}
             --project-name=${{ vars.PAGES_PROJECT }}
