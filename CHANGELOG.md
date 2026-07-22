@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.4.0...v1.4.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **web-deploy:** pin wrangler-action to the caller's package manager ([#39](https://github.com/QNSC-VN/qnsc-ci/issues/39)) ([1cbb3a1](https://github.com/QNSC-VN/qnsc-ci/commit/1cbb3a1af41d6b4b9de51f5f0cd689bff12c992c))
+
 ## [1.4.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.3.4...v1.4.0) (2026-07-18)
 
 
