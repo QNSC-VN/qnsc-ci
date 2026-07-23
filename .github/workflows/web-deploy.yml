@@ -253,12 +253,14 @@ jobs:
         if: always()
         run: |
           STATUS="${{ job.status }}"
-          echo "### Deploy $STATUS — $ENVIRONMENT" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Asset tag** | \`$ASSET_TAG\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Pages project** | \`${{ vars.PAGES_PROJECT }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Actor** | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Deploy $STATUS — $ENVIRONMENT"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| **Asset tag** | \`$ASSET_TAG\` |"
+            echo "| **Pages project** | \`${{ vars.PAGES_PROJECT }}\` |"
+            echo "| **Actor** | ${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify deploy result
         if: always()

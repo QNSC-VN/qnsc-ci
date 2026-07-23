@@ -182,6 +182,9 @@ jobs:
           for c in $SEMGREP_CONFIG; do CONFIG_ARGS="$CONFIG_ARGS --config=$c"; done
           ERROR_FLAG=""
           [ "${SEMGREP_BLOCKING}" = "true" ] && ERROR_FLAG="--error"
+          # Intentional word-splitting below: CONFIG_ARGS/ERROR_FLAG accumulate
+          # zero or more separate flags, so they must stay unquoted.
+          # shellcheck disable=SC2086
           docker run --rm -v "$PWD:/src" -w /src -e SEMGREP_SEND_METRICS=off \
             "semgrep/semgrep:${SEMGREP_VERSION}" \
             semgrep scan $CONFIG_ARGS $ERROR_FLAG --sarif --output=semgrep.sarif .
