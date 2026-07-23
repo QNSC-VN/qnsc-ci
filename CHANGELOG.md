@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.4.1...v1.4.2) (2026-07-23)
+
+
+### Bug Fixes
+
+* resolve actionlint/shellcheck findings ([#44](https://github.com/QNSC-VN/qnsc-ci/issues/44)) ([26d5c0b](https://github.com/QNSC-VN/qnsc-ci/commit/26d5c0b1969fef2361d49e05a4e70d3816d23a5b))
+
 ## [1.4.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.4.0...v1.4.1) (2026-07-22)
 
 
