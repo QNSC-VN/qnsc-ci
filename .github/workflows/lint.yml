@@ -1,0 +1,39 @@
+# =============================================================================
+# Static validation — this repo IS the org's CI/CD supply chain: every
+# composite action here is consumed by rally, opshub, and every future
+# product. A YAML mistake or bad shell in a `run:` block would silently break
+# CI/deploys everywhere on the next version bump, with no other gate to catch
+# it before a consumer's pipeline fails. actionlint checks workflow/action
+# YAML shape (bad `uses:`, undefined inputs/outputs, wrong expression syntax)
+# and shells out to shellcheck for embedded `run:` scripts.
+# =============================================================================
+name: Lint · Actions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: lint-actions-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint (workflows + actions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # TODO: pin to a full commit SHA (org convention) once this has run once
+      # and the resolved SHA is visible in the Actions log — not verified here.
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+        with:
+          fail-on-error: true
+          shellcheck: true
