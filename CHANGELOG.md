@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.4.2...v1.5.0) (2026-07-26)
+
+
+### Features
+
+* **deploy:** secret preflight + reaper for gate-parked deploy runs ([#47](https://github.com/QNSC-VN/qnsc-ci/issues/47)) ([2c95e46](https://github.com/QNSC-VN/qnsc-ci/commit/2c95e4638511629cf95ffcde7ffc1e6b8fab1522))
+
 ## [1.4.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.4.1...v1.4.2) (2026-07-26)
 
 
