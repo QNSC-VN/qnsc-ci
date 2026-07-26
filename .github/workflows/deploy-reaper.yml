@@ -1,0 +1,77 @@
+# =============================================================================
+# Reusable: deploy reaper — clear parked deploy runs that deadlock the next release.
+#
+# Deploy workflows serialize on a workflow-level `concurrency` group with
+# `cancel-in-progress: false`, so two prod DB migrations can never race. But the
+# production Environment's reviewer gate sits INSIDE that group: an unapproved tag
+# deploy stays `waiting` indefinitely while still holding the lock, and every later
+# release then queues behind it with ZERO jobs created and no notification
+# anywhere. Observed in rally: two unapproved releases 12 days apart silently
+# blocked a third for 24 hours.
+#
+# This cannot be a job inside the deploy workflow — workflow-level concurrency
+# queues the ENTIRE run, so such a job would be blocked by the very lock it exists
+# to clear. Hence a separate workflow with its own group.
+#
+# Only `waiting` runs are cancelled. A `waiting` run is parked on an environment
+# gate with no compute executing, so cancelling it cannot interrupt a running
+# migration or a half-rolled service. `in_progress` is never touched — that is the
+# case `cancel-in-progress: false` exists to protect.
+# =============================================================================
+name: Reusable · Deploy Reaper
+
+on:
+  workflow_call:
+    inputs:
+      workflows:
+        description: Deploy workflow filenames to reap, comma- or space-separated.
+        type: string
+        default: backend-deploy.yml web-deploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  reap:
+    name: Cancel superseded deploy runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write # cancel runs
+      contents: read
+    steps:
+      - name: Cancel parked runs from earlier refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOWS: ${{ inputs.workflows }}
+        run: |
+          set -euo pipefail
+          IFS=', ' read -r -a WF_LIST <<<"$WORKFLOWS"
+          REAPED=0
+
+          for WF in "${WF_LIST[@]}"; do
+            [ -n "$WF" ] || continue
+            # head_sha is the discriminator. This release is one tag pointing at one
+            # sha, so excluding that sha keeps THIS release's own deploy runs while
+            # reaping every older parked one. Comparing timestamps would be racy.
+            IDS=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$WF" \
+                    --status waiting --limit 100 \
+                    --json databaseId,headSha,headBranch \
+                    --jq ".[] | select(.headSha != \"$GITHUB_SHA\") | \"\(.databaseId) \(.headBranch)\"")
+
+            # Herestring, not a pipe: a pipe would run this loop in a subshell and
+            # discard REAPED.
+            while IFS= read -r LINE; do
+              [ -n "$LINE" ] || continue
+              ID=${LINE%% *}
+              REF=${LINE#* }
+              echo "Cancelling $WF run $ID ($REF) — parked on an environment gate, superseded by $GITHUB_REF_NAME."
+              if ! gh run cancel --repo "$GITHUB_REPOSITORY" "$ID"; then
+                echo "::warning::could not cancel $WF run $ID — it may have just left the waiting state."
+                continue
+              fi
+              REAPED=$((REAPED + 1))
+            done <<<"$IDS"
+          done
+
+          echo "Reaped $REAPED superseded deploy run(s)." | tee -a "$GITHUB_STEP_SUMMARY"
