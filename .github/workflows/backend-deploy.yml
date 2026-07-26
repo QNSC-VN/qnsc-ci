@@ -224,6 +224,72 @@ jobs:
           # image manifest from the private registry; otherwise it 401s.
           ecr-login: 'true'
 
+      # ── Preflight: every injected secret must hold a value ───────────────────
+      # Terraform creates secret CONTAINERS; values are populated out of band with
+      # `put-secret-value`. An empty container is accepted by
+      # RegisterTaskDefinition and only fails when ECS pulls it — as a
+      # ResourceInitializationError minutes later, followed by a rollback whose
+      # event log never names the offending secret. A few metadata calls here name
+      # it before anything is registered or rolled.
+      #
+      # Only a CONFIRMED empty secret fails the job. Any other error (the role
+      # lacks the permission, the secret is absent) warns and continues, so this
+      # gate can never block a deploy it merely failed to verify.
+      - name: Preflight — injected secrets hold values
+        env:
+          API_FAMILY: ${{ vars.ECS_CLUSTER }}-${{ vars.ECS_API_SERVICE }}
+          WORKER_FAMILY: ${{ inputs.has_worker && format('{0}-{1}', vars.ECS_CLUSTER, vars.ECS_WORKER_SERVICE) || '' }}
+          MIGRATOR_FAMILY: ${{ inputs.has_migrator && vars.ECS_MIGRATOR_TASK_DEF || '' }}
+        run: |
+          set -euo pipefail
+          EMPTY=0
+          FAMILIES=()
+          if [ -n "$API_FAMILY" ];      then FAMILIES+=("$API_FAMILY");      fi
+          if [ -n "$WORKER_FAMILY" ];   then FAMILIES+=("$WORKER_FAMILY");   fi
+          if [ -n "$MIGRATOR_FAMILY" ]; then FAMILIES+=("$MIGRATOR_FAMILY"); fi
+
+          for FAMILY in "${FAMILIES[@]}"; do
+            # `secrets[].valueFrom` may carry a JSON-key suffix
+            # (`<arn>:<key>:<stage>:<id>`). A bare Secrets Manager ARN is exactly
+            # 7 colon-separated fields, so rejoin the first 7 to get the secret id.
+            REFS=$(aws ecs describe-task-definition --task-definition "$FAMILY" \
+                     --query 'taskDefinition.containerDefinitions[].secrets[].valueFrom' \
+                     --output json | python3 -c '
+          import json, sys
+          for v in json.load(sys.stdin) or []:
+              if ":secretsmanager:" in v:   # SSM Parameter Store refs are out of scope
+                  print(":".join(v.split(":")[:7]))
+          ' | sort -u)
+
+            # Herestring, not a pipe: a pipe would run this loop in a subshell and
+            # discard EMPTY.
+            while IFS= read -r REF; do
+              [ -n "$REF" ] || continue
+              if ! OUT=$(aws secretsmanager list-secret-version-ids --secret-id "$REF" --output json 2>&1); then
+                echo "::warning::$FAMILY: cannot verify ${REF##*:secret:} — $(echo "$OUT" | tail -1)"
+                continue
+              fi
+              INFO=$(SECRET_REF="$REF" python3 -c '
+          import json, os, sys
+          d = json.load(sys.stdin)
+          print(d.get("Name") or os.environ["SECRET_REF"].split(":secret:")[-1],
+                len(d.get("Versions") or []))
+          ' <<<"$OUT")
+              NAME=${INFO%% *}
+              COUNT=${INFO##* }
+              if [ "$COUNT" -eq 0 ]; then
+                echo "::error::$FAMILY injects secret '$NAME' but it holds no value. Populate it and re-run: aws secretsmanager put-secret-value --secret-id '$NAME' --secret-string '<value>'"
+                EMPTY=1
+              fi
+            done <<<"$REFS"
+          done
+
+          if [ "$EMPTY" -ne 0 ]; then
+            echo "Refusing to deploy: an injected secret is an empty container."
+            exit 1
+          fi
+          echo "Preflight OK — every injected Secrets Manager reference holds a value."
+
       - name: Update API task definition to ${{ env.IMAGE_TAG }}
         id: api-taskdef
         env:
