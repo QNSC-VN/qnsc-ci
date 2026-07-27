@@ -341,10 +341,10 @@ jobs:
           print(p[0].get("Version", 0) if p else 0)
           ')
               if [ "$VER" -eq 0 ]; then
-                echo "::error::$FAMILY injects SSM parameter '"'"'$PARAM'"'"' but it does not exist. Create it via Terraform, then set its value."
+                echo "::error::$FAMILY injects SSM parameter '$PARAM' but it does not exist. Create it via Terraform, then set its value."
                 EMPTY=1
               elif [ "$VER" -eq 1 ]; then
-                echo "::error::$FAMILY injects SSM parameter '"'"'$PARAM'"'"' but it still holds the Terraform placeholder. Populate it and re-run: aws ssm put-parameter --name '"'"'$PARAM'"'"' --type SecureString --overwrite --value '"'"'<value>'"'"'"
+                echo "::error::$FAMILY injects SSM parameter '$PARAM' but it still holds the Terraform placeholder. Populate it and re-run: aws ssm put-parameter --name '$PARAM' --type SecureString --overwrite --value '<value>'"
                 EMPTY=1
               fi
             done <<<"$PARAMS"
