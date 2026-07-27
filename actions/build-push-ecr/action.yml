@@ -33,6 +33,19 @@ inputs:
     description: Dockerfile target stage (for multi-stage builds)
     required: false
     default: ''
+  platforms:
+    description: >
+      Target platform(s) for the image, e.g. `linux/arm64` for Fargate Graviton
+      tasks (~20% cheaper per vCPU-hour and GB-hour than x86). Must match the
+      `cpu_architecture` on the ECS task definition, or the container fails to
+      start with "image Manifest does not contain descriptor matching platform".
+
+      Build on a runner of the SAME architecture — the reusable backend-deploy
+      workflow takes a `runner` input for that. Cross-building under QEMU works but
+      costs several times the build minutes on a pnpm + Nest compile, which is worse
+      than the Fargate saving. Leave empty to build for the runner's own platform.
+    required: false
+    default: ''
   cache-scope:
     description: >
       GHA cache scope key — use a unique value per image when building
@@ -85,6 +98,7 @@ runs:
         context: ${{ inputs.build-context }}
         file: ${{ inputs.dockerfile }}
         target: ${{ inputs.build-target }}
+        platforms: ${{ inputs.platforms }}
         push: true
         tags: ${{ steps.tags.outputs.tags }}
         cache-from: type=gha,scope=${{ inputs.cache-scope }}
