@@ -39,6 +39,19 @@ inputs:
       Set to 'false' during debugging only — always true in CI.
     required: false
     default: 'true'
+  retry-max-attempts:
+    description: >
+      AssumeRole attempts before giving up. The upstream default is 12, which is
+      unsafe next to a job timeout: when STS is unreachable each attempt burns a
+      full TCP connect timeout (~7 min), so 12 attempts outlive any sane
+      `timeout-minutes`. The job is then killed mid-retry and GitHub records the
+      conclusion as `cancelled` — indistinguishable from a human cancelling a
+      production deploy, with the real ETIMEDOUT buried in the log.
+
+      3 keeps genuine transient blips survivable while staying inside a 30-minute
+      job timeout, so a real outage ends as `failure` with the cause visible.
+    required: false
+    default: '3'
 
 outputs:
   ecr-registry:
@@ -61,6 +74,7 @@ runs:
         aws-region: ${{ inputs.region }}
         role-duration-seconds: ${{ inputs.session-duration }}
         mask-aws-account-id: ${{ inputs.mask-aws-account-id }}
+        retry-max-attempts: ${{ inputs.retry-max-attempts }}
 
     - name: Login to Amazon ECR
       id: ecr-login

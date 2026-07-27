@@ -257,8 +257,18 @@ jobs:
                      --output json | python3 -c '
           import json, sys
           for v in json.load(sys.stdin) or []:
-              if ":secretsmanager:" in v:   # SSM Parameter Store refs are out of scope
-                  print(":".join(v.split(":")[:7]))
+              if ":secretsmanager:" not in v:
+                  continue                  # SSM Parameter Store refs are out of scope
+              secret_id = ":".join(v.split(":")[:7])
+              # RDS-managed master secrets (rds!db-<id>) are created AND populated by
+              # RDS itself, so they cannot be the empty container this checks for.
+              # They also sit outside the product <product>/* IAM scope by design, so
+              # probing them only ever produced an AccessDenied warning on every
+              # deploy — noise that would mask a real one. No backticks in here: this
+              # block is a single-quoted shell string, so they would read as command
+              # substitution (SC2016).
+              if not secret_id.split(":secret:")[-1].startswith("rds!"):
+                  print(secret_id)
           ' | sort -u)
 
             # Herestring, not a pipe: a pipe would run this loop in a subshell and
