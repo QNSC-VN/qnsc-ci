@@ -16,6 +16,19 @@ on:
       has_worker:   { type: boolean, default: true }
       has_migrator: { type: boolean, default: true }
       aws_region:   { type: string, default: "ap-southeast-1" }
+      # Image architecture. Fargate ARM64 (Graviton) bills ~20% less per vCPU-hour
+      # and GB-hour, and must match `cpu_architecture` on the task definitions.
+      #
+      # Build on a runner of the same architecture rather than cross-building:
+      # `build_runner: ubuntu-24.04-arm` with `image_platforms: linux/arm64`. QEMU
+      # emulation also works but multiplies build minutes on a pnpm + Nest compile
+      # by enough to outweigh the Fargate saving.
+      #
+      # Defaults keep the historical x86 behaviour, so a product opts in by setting
+      # both together — set only one and the container fails at start with "image
+      # Manifest does not contain descriptor matching platform".
+      build_runner:    { type: string, default: "ubuntu-latest" }
+      image_platforms: { type: string, default: "" }
     secrets:
       AWS_ACCOUNT_ID:       { required: true }
       SLACK_DEPLOY_WEBHOOK: { required: false }
@@ -51,7 +64,7 @@ jobs:
 
   build-push:
     name: ${{ github.ref_type == 'tag' && 'Promote image to ECR' || 'Build & push to ECR' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.build_runner }}
     needs: context
     timeout-minutes: 45
     # Expose the attested API image digest so the deploy job can verify the
@@ -129,6 +142,7 @@ jobs:
           extra-tags: latest
           build-target: api
           cache-scope: api
+          platforms: ${{ inputs.image_platforms }}
 
       - name: Scan API image
         if: github.ref_type != 'tag'
@@ -157,6 +171,7 @@ jobs:
           extra-tags: latest
           build-target: worker
           cache-scope: worker
+          platforms: ${{ inputs.image_platforms }}
 
       - name: Scan Worker image
         if: github.ref_type != 'tag' && inputs.has_worker
@@ -185,6 +200,7 @@ jobs:
           extra-tags: latest
           build-target: migrator
           cache-scope: migrator
+          platforms: ${{ inputs.image_platforms }}
 
       - name: Scan Migrator image
         if: github.ref_type != 'tag' && inputs.has_migrator
@@ -271,6 +287,18 @@ jobs:
                   print(secret_id)
           ' | sort -u)
 
+            # SSM SecureString parameters, checked separately below. Same job in the task
+            # definition, different API — and a much cheaper check, because SSM refuses to
+            # store an empty value, so "exists" already implies "has a value".
+            PARAMS=$(aws ecs describe-task-definition --task-definition "$FAMILY" \
+                       --query 'taskDefinition.containerDefinitions[].secrets[].valueFrom' \
+                       --output json | python3 -c '
+          import json, sys
+          for v in json.load(sys.stdin) or []:
+              if ":ssm:" in v and ":parameter/" in v:
+                  print("/" + v.split(":parameter/", 1)[1])
+          ' | sort -u)
+
             # Herestring, not a pipe: a pipe would run this loop in a subshell and
             # discard EMPTY.
             while IFS= read -r REF; do
@@ -292,13 +320,41 @@ jobs:
                 EMPTY=1
               fi
             done <<<"$REFS"
+
+            # ── SSM SecureString: version 1 means still the Terraform placeholder ──
+            # The secrets module creates these holding "UNSET" with ignore_changes on the
+            # value, so an operator's first `put-parameter` bumps the version to 2. Version
+            # is METADATA: this reads describe-parameters, never GetParameter, so the deploy
+            # role needs no permission to read secret material — a real improvement on the
+            # Secrets Manager path above, which can only count versions.
+            while IFS= read -r PARAM; do
+              [ -n "$PARAM" ] || continue
+              if ! OUT=$(aws ssm describe-parameters \
+                           --parameter-filters "Key=Name,Values=$PARAM" \
+                           --output json 2>&1); then
+                echo "::warning::$FAMILY: cannot verify $PARAM — $(echo "$OUT" | tail -1)"
+                continue
+              fi
+              VER=$(echo "$OUT" | python3 -c '
+          import json, sys
+          p = (json.load(sys.stdin).get("Parameters") or [])
+          print(p[0].get("Version", 0) if p else 0)
+          ')
+              if [ "$VER" -eq 0 ]; then
+                echo "::error::$FAMILY injects SSM parameter '$PARAM' but it does not exist. Create it via Terraform, then set its value."
+                EMPTY=1
+              elif [ "$VER" -eq 1 ]; then
+                echo "::error::$FAMILY injects SSM parameter '$PARAM' but it still holds the Terraform placeholder. Populate it and re-run: aws ssm put-parameter --name '$PARAM' --type SecureString --overwrite --value '<value>'"
+                EMPTY=1
+              fi
+            done <<<"$PARAMS"
           done
 
           if [ "$EMPTY" -ne 0 ]; then
             echo "Refusing to deploy: an injected secret is an empty container."
             exit 1
           fi
-          echo "Preflight OK — every injected Secrets Manager reference holds a value."
+          echo "Preflight OK — every injected Secrets Manager secret and SSM parameter holds a value."
 
       - name: Update API task definition to ${{ env.IMAGE_TAG }}
         id: api-taskdef
