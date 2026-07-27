@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.5.1...v1.6.0) (2026-07-27)
+
+
+### Features
+
+* **deploy:** support ARM64 image builds and SSM secret preflight ([#51](https://github.com/QNSC-VN/qnsc-ci/issues/51)) ([8d641b6](https://github.com/QNSC-VN/qnsc-ci/commit/8d641b62ee16805099145df36f950270eda87a2f))
+
 ## [1.5.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.5.0...v1.5.1) (2026-07-27)
 
 
