@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.5.0...v1.5.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **backend-deploy:** skip RDS-managed secrets in the preflight ([#49](https://github.com/QNSC-VN/qnsc-ci/issues/49)) ([54e4d5e](https://github.com/QNSC-VN/qnsc-ci/commit/54e4d5e6b826100e394d424102bad7bba38cab14))
+
 ## [1.5.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.4.2...v1.5.0) (2026-07-26)
 
 
