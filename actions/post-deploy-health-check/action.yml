@@ -47,12 +47,23 @@ runs:
         echo "Polling $URL (timeout: ${TIMEOUT}s)"
 
         while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-          # --max-time 10: cap each attempt. On curl error/timeout the substitution
-          # returns non-zero; we append \n000 so STATUS parsing never gets an empty string.
-          HTTP_OUT=$(curl -s -w "\n%{http_code}" --max-time 10 "$URL" 2>/dev/null)
-          CURL_RC=$?
-          if [ $CURL_RC -ne 0 ] || [ -z "$HTTP_OUT" ]; then
-            HTTP_OUT="curl-failed\n000"
+          # --max-time 10 caps each attempt, and a failed attempt must NOT end the step:
+          # the whole point of polling is that early attempts fail while the target
+          # registers with the ALB.
+          #
+          # `if ! VAR=$(...)` rather than `VAR=$(...); RC=$?`. Composite actions run with
+          # `-e`, and a variable assignment takes the exit status of its command
+          # substitution — so the shell died on the first curl timeout and never reached
+          # the check below it. That is how a develop deploy failed with bare
+          # "Polling ..." followed by curl's exit 28, no attempts logged.
+          #
+          # $'...' for the fallback, not "...": in double quotes the \n is a literal
+          # backslash-n, so `tail -n 1` returned the whole string instead of 000.
+          if ! HTTP_OUT=$(curl -s -w "\n%{http_code}" --max-time 10 "$URL" 2>/dev/null); then
+            HTTP_OUT=$'curl-failed\n000'
+          fi
+          if [ -z "$HTTP_OUT" ]; then
+            HTTP_OUT=$'curl-failed\n000'
           fi
           BODY=$(printf '%s' "$HTTP_OUT" | head -n -1)
           STATUS=$(printf '%s' "$HTTP_OUT" | tail -n 1)
