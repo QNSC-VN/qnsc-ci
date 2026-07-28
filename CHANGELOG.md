@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.0...v1.6.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **deploy:** scan the image platform that was actually built ([#53](https://github.com/QNSC-VN/qnsc-ci/issues/53)) ([c46230d](https://github.com/QNSC-VN/qnsc-ci/commit/c46230d0b3c2ca149c382945cef5deb89e90c681))
+
 ## [1.6.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.5.1...v1.6.0) (2026-07-27)
 
 
