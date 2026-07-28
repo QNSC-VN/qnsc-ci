@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.1...v1.6.2) (2026-07-28)
+
+
+### Bug Fixes
+
+* **actions:** let the health check actually retry ([#55](https://github.com/QNSC-VN/qnsc-ci/issues/55)) ([a977460](https://github.com/QNSC-VN/qnsc-ci/commit/a97746070639e057502eccf1a36695a8fb4030a6))
+
 ## [1.6.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.0...v1.6.1) (2026-07-28)
 
 
