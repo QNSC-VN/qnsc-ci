@@ -425,12 +425,20 @@ jobs:
           ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_DEF" --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"
 
-      # The dev cost-saver scheduler stops RDS and scales ECS services to 0
-      # overnight. A deploy that lands while dev is asleep would otherwise
-      # (a) time out on the DB and (b) start zero tasks, so verify never sees
-      # the new image. Start RDS (wait up to 8 min) and scale any service at
-      # desiredCount=0 back to 1. On prod this is a no-op: RDS is Multi-AZ
-      # (never stopped) and services are never scaled to 0.
+      # Recovers a develop environment that has been put to sleep: a stopped RDS
+      # instance, or services left at desiredCount=0. Without this a deploy landing
+      # on a sleeping environment would (a) time out on the DB and (b) start zero
+      # tasks, so verify never sees the new image. Start RDS (wait up to 8 min) and
+      # scale any service at desiredCount=0 back to 1.
+      #
+      # NOTE: no scheduler currently does the sleeping — there is no EventBridge rule
+      # or Lambda anywhere that stops these. This step exists so that stopping dev BY
+      # HAND is safe, and so an off-hours scheduler can be added later without
+      # touching the deploy path. Do not read it as evidence one is running.
+      #
+      # Never runs on prod at all — the step is gated on ENVIRONMENT == 'develop', which
+      # is the real guarantee. Do not restate prod's RDS topology here: it is pre-launch
+      # single-AZ today and Multi-AZ after go-live, and a comment that tracks it will rot.
       - name: Ensure dev environment is awake (RDS + ECS)
         if: env.ENVIRONMENT == 'develop'
         env:
@@ -440,7 +448,7 @@ jobs:
           ECS_API_SERVICE: ${{ vars.ECS_API_SERVICE }}
           ECS_WORKER_SERVICE: ${{ vars.ECS_WORKER_SERVICE }}
         run: |
-          # ── RDS: start if the cost-saver stopped it, then wait for available ──
+          # ── RDS: start it if something stopped it, then wait for available ──
           ensure_rds() {
             [ -z "$RDS_IDENTIFIER" ] && { echo "No RDS_INSTANCE_ID var — skipping RDS guard."; return 0; }
             local status
@@ -469,7 +477,7 @@ jobs:
           }
           ensure_rds
 
-          # ── ECS: restore any service the cost-saver scaled to 0, otherwise the
+          # ── ECS: restore any service left at 0, otherwise the
           #    deploy starts no tasks and the verify step times out. ──
           for SVC in "$ECS_API_SERVICE" "$ECS_WORKER_SERVICE"; do
             [ -z "$SVC" ] && continue
@@ -477,7 +485,7 @@ jobs:
               --cluster "$ECS_CLUSTER" --services "$SVC" --region "$AWS_REGION" \
               --query 'services[0].desiredCount' --output text 2>/dev/null || echo "0")
             if [ "$desired" = "0" ]; then
-              echo "ECS $SVC is scaled to 0 (cost-saver) — scaling up to 1"
+              echo "ECS $SVC is scaled to 0 — scaling up to 1"
               aws ecs update-service --cluster "$ECS_CLUSTER" --service "$SVC" \
                 --desired-count 1 --region "$AWS_REGION" >/dev/null
             else
