@@ -94,10 +94,16 @@ runs:
           }' "$TITLE" "$SLACK_COLOR" "$ENV" "${VERSION:-N/A}" "$ACTOR" "$RUN_URL")
         fi
 
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+        # `if ! VAR=$(...)`: composite actions run with `-e`, and an assignment takes the
+        # exit status of its command substitution, so an unreachable webhook host killed
+        # this step before the HTTP_CODE check below could report it. 000 keeps the
+        # message accurate — the notification did not send.
+        if ! HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD" \
-          "$WEBHOOK")
+          "$WEBHOOK"); then
+          HTTP_CODE="000"
+        fi
 
         if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
           echo "⚠️  Webhook returned HTTP $HTTP_CODE — notification may not have sent"
