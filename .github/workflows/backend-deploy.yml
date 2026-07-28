@@ -153,6 +153,16 @@ jobs:
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true
+        # Trivy resolves a remote image index to linux/amd64 unless told otherwise, so a
+        # single-arch arm64 image fails with "no child with platform linux/amd64 in
+        # index". Derived from the RUNNER, not from `image_platforms`: the build ran on
+        # this same runner, so its architecture IS the one the image was built for. That
+        # stays correct for both the x86 default and an ARM opt-in, needs no parsing of a
+        # possibly-multi-value input, and is always non-empty — so there is no
+        # empty-string edge case in Trivy's platform parsing. The pinned trivy-action has
+        # no `platform` input; TRIVY_PLATFORM is the CLI flag's env binding.
+        env:
+          TRIVY_PLATFORM: linux/${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
 
       - name: Attest API image
         if: github.ref_type != 'tag'
@@ -182,6 +192,16 @@ jobs:
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true
+        # Trivy resolves a remote image index to linux/amd64 unless told otherwise, so a
+        # single-arch arm64 image fails with "no child with platform linux/amd64 in
+        # index". Derived from the RUNNER, not from `image_platforms`: the build ran on
+        # this same runner, so its architecture IS the one the image was built for. That
+        # stays correct for both the x86 default and an ARM opt-in, needs no parsing of a
+        # possibly-multi-value input, and is always non-empty — so there is no
+        # empty-string edge case in Trivy's platform parsing. The pinned trivy-action has
+        # no `platform` input; TRIVY_PLATFORM is the CLI flag's env binding.
+        env:
+          TRIVY_PLATFORM: linux/${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
 
       - name: Attest Worker image
         if: github.ref_type != 'tag' && inputs.has_worker
@@ -211,6 +231,16 @@ jobs:
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true
+        # Trivy resolves a remote image index to linux/amd64 unless told otherwise, so a
+        # single-arch arm64 image fails with "no child with platform linux/amd64 in
+        # index". Derived from the RUNNER, not from `image_platforms`: the build ran on
+        # this same runner, so its architecture IS the one the image was built for. That
+        # stays correct for both the x86 default and an ARM opt-in, needs no parsing of a
+        # possibly-multi-value input, and is always non-empty — so there is no
+        # empty-string edge case in Trivy's platform parsing. The pinned trivy-action has
+        # no `platform` input; TRIVY_PLATFORM is the CLI flag's env binding.
+        env:
+          TRIVY_PLATFORM: linux/${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
 
       - name: Attest Migrator image
         if: github.ref_type != 'tag' && inputs.has_migrator
