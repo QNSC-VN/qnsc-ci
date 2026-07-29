@@ -69,12 +69,46 @@ runs:
             exit 1
           fi
 
-          aws ecr put-image \
+          # IDEMPOTENT: `put-image` fails with ImageAlreadyExistsException when the
+          # release tag already points at this exact digest, which is the state after a
+          # successful promote. Re-running a prod deploy is ordinary — to pick up a task
+          # definition an infra apply registered afterwards, or to retry a transient
+          # failure — and it used to abort here before reaching the (approval-gated)
+          # deploy job, leaving the release un-deployable through the pipeline.
+          #
+          # Tolerated ONLY when the digest matches. A release tag pointing at a
+          # DIFFERENT digest is a genuine error: it means the tag was moved, so the
+          # artifact behind vX.Y.Z is not the one this run built, and silently
+          # continuing would deploy something nobody reviewed.
+          EXISTING=$(aws ecr batch-get-image \
             --repository-name "$repo" \
-            --image-tag "${RELEASE_TAG}" \
-            --image-manifest "$MANIFEST" \
+            --image-ids imageTag="${RELEASE_TAG}" \
             --region "${REGION}" \
-            --output text > /dev/null
+            --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
+          SOURCE_DIGEST=$(aws ecr batch-get-image \
+            --repository-name "$repo" \
+            --image-ids imageTag="${SOURCE_TAG}" \
+            --region "${REGION}" \
+            --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
+
+          if [[ -n "$EXISTING" && "$EXISTING" != "None" ]]; then
+            if [[ "$EXISTING" == "$SOURCE_DIGEST" ]]; then
+              echo "  $repo:${RELEASE_TAG} already points at ${SOURCE_DIGEST} — nothing to do."
+            else
+              echo "ERROR: $repo:${RELEASE_TAG} already exists but points at a DIFFERENT image."
+              echo "  existing: ${EXISTING}"
+              echo "  expected: ${SOURCE_DIGEST} (from ${SOURCE_TAG})"
+              echo "A release tag must be immutable. Refusing to move it."
+              exit 1
+            fi
+          else
+            aws ecr put-image \
+              --repository-name "$repo" \
+              --image-tag "${RELEASE_TAG}" \
+              --image-manifest "$MANIFEST" \
+              --region "${REGION}" \
+              --output text > /dev/null
+          fi
 
           echo "✓ $repo: ${SOURCE_TAG} → ${RELEASE_TAG}"
           PROMOTED="${PROMOTED}${repo}:${RELEASE_TAG}"$'\n'
