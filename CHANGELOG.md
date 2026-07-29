@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.3](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.2...v1.6.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* **promote-ecr-images:** make promotion idempotent so a prod deploy can be re-run ([#58](https://github.com/QNSC-VN/qnsc-ci/issues/58)) ([caf4731](https://github.com/QNSC-VN/qnsc-ci/commit/caf4731b665538e05988719544b55a4243d164a4))
+
 ## [1.6.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.1...v1.6.2) (2026-07-28)
 
 
