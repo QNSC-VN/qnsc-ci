@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.4](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.3...v1.6.4) (2026-07-29)
+
+
+### Bug Fixes
+
+* **infra-plan:** plan every workspace when a local path module changes ([#60](https://github.com/QNSC-VN/qnsc-ci/issues/60)) ([6e2c982](https://github.com/QNSC-VN/qnsc-ci/commit/6e2c982680429c2af1faf79b75ce6f3f712a3742))
+
 ## [1.6.3](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.2...v1.6.3) (2026-07-29)
 
 
