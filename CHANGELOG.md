@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.5](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.4...v1.6.5) (2026-07-30)
+
+
+### Bug Fixes
+
+* **backend-deploy:** verify readiness, not liveness, after a deploy ([#62](https://github.com/QNSC-VN/qnsc-ci/issues/62)) ([a7bd2c3](https://github.com/QNSC-VN/qnsc-ci/commit/a7bd2c3b03fa19100ab26d255f33af1cbbf0c9c8))
+
 ## [1.6.4](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.3...v1.6.4) (2026-07-29)
 
 
