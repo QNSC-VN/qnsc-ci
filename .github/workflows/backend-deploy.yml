@@ -570,11 +570,28 @@ jobs:
             exit 1
           fi
 
-      - name: Post-deploy health check
+      # READYZ, not healthz. `/v1/healthz` is a liveness probe: it returns 200
+      # unconditionally, without touching a dependency, because it is what the ALB
+      # target group polls every 30s and a dependency-coupled probe there would
+      # deregister every task the moment a database blipped.
+      #
+      # That makes it the wrong thing to verify a DEPLOY with. Nothing between
+      # `services-stable` and here inspects a dependency, and the application does not
+      # exit when one is missing — it logs and degrades. A deploy could therefore go
+      # green against an environment whose cache had gone: sessions dead, and the token
+      # denylist and rate limiter failing open, with the pipeline reporting success.
+      # That is not hypothetical — it is reachable today by deploying an environment
+      # whose cache node has been removed.
+      #
+      # `/v1/readyz` checks postgres and the cache, so a deploy that produces a running
+      # but unusable service fails here instead of being reported as a success. This is
+      # the one place a dependency-coupled probe belongs: it runs once, after the roll,
+      # and nothing deregisters on its result.
+      - name: Post-deploy readiness check
         if: vars.APP_URL != ''
         uses: QNSC-VN/qnsc-ci/actions/post-deploy-health-check@v1
         with:
-          url: ${{ vars.APP_URL }}/v1/healthz
+          url: ${{ vars.APP_URL }}/v1/readyz
           timeout-seconds: '120'
 
       - name: Deployment summary
