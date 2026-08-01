@@ -431,10 +431,22 @@ jobs:
       # tasks, so verify never sees the new image. Start RDS (wait up to 8 min) and
       # scale any service at desiredCount=0 back to 1.
       #
-      # NOTE: no scheduler currently does the sleeping — there is no EventBridge rule
-      # or Lambda anywhere that stops these. This step exists so that stopping dev BY
-      # HAND is safe, and so an off-hours scheduler can be added later without
-      # touching the deploy path. Do not read it as evidence one is running.
+      # THIS STEP IS ONE HALF OF A LOOP. A previous version of this comment said no
+      # scheduler did the sleeping; that is no longer true, and consuming products
+      # should not be read as if it were. Product stacks create EventBridge schedules
+      # that stop RDS and scale services to zero off-hours (rally: `idle_schedule` in
+      # infra/live/develop/main.tf, firing 21:00 and 03:00 Asia/Ho_Chi_Minh), and this
+      # step is what brings the environment back on the next deploy.
+      #
+      # Two consequences worth knowing before changing either half:
+      #
+      #   - A deploy landing after the stop WAKES the environment and nothing puts it
+      #     back until the next scheduled pass. Rally ran 24/7 for weeks against a
+      #     single nightly stop for exactly this reason (measured 2026-08-02). If a
+      #     product reports its idle schedule "not working", suspect the interaction
+      #     with this step before suspecting the schedule.
+      #   - Removing this step does not save money. It breaks waking, and deploys then
+      #     fail against a stopped database.
       #
       # Never runs on prod at all — the step is gated on ENVIRONMENT == 'develop', which
       # is the real guarantee. Do not restate prod's RDS topology here: it is pre-launch
