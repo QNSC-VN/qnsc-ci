@@ -148,7 +148,7 @@ jobs:
       - name: Upload Trivy SARIF (GHAS UI — advisory on free plan)
         if: always()
         continue-on-error: true # requires GitHub Advanced Security (free plan: no-op)
-        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81  # v4
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38  # v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-container
@@ -195,7 +195,7 @@ jobs:
       - name: Upload Semgrep SARIF (GHAS UI — advisory on free plan)
         if: always()
         continue-on-error: true # requires GitHub Advanced Security (free plan: no-op)
-        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81  # v4
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38  # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep-sast
@@ -214,7 +214,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: QNSC-VN/qnsc-ci/actions/scan-secrets@v1
+      - uses: QNSC-VN/qnsc-ci/actions/scan-secrets@v1.6.5
         with:
           fail-on-leak: 'true'
 

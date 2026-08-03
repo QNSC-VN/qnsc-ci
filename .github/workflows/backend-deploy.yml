@@ -87,7 +87,7 @@ jobs:
 
       - name: Setup AWS OIDC + ECR login
         id: aws
-        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1.6.5
         with:
           role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-ecr-push
           region: ${{ inputs.aws_region }}
@@ -104,7 +104,7 @@ jobs:
 
       - name: Promote images ${{ env.SOURCE_TAG }} → ${{ env.IMAGE_TAG }}
         if: github.ref_type == 'tag'
-        uses: QNSC-VN/qnsc-ci/actions/promote-ecr-images@v1
+        uses: QNSC-VN/qnsc-ci/actions/promote-ecr-images@v1.6.5
         with:
           image-names: ${{ steps.images.outputs.list }}
           source-tag:  ${{ env.SOURCE_TAG }}
@@ -126,7 +126,7 @@ jobs:
 
       - name: Attest promoted API image
         if: github.ref_type == 'tag'
-        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1.6.5
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.promoted-api-digest.outputs.digest }}
 
@@ -134,7 +134,7 @@ jobs:
       - name: Build, scan & attest API
         if: github.ref_type != 'tag'
         id: build-api
-        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
+        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1.6.5
         with:
           ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
           image-name: ${{ inputs.product }}-api
@@ -166,14 +166,14 @@ jobs:
 
       - name: Attest API image
         if: github.ref_type != 'tag'
-        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1.6.5
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.build-api.outputs.image-digest }}
 
       - name: Build, scan & attest Worker
         if: github.ref_type != 'tag' && inputs.has_worker
         id: build-worker
-        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
+        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1.6.5
         with:
           ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
           image-name: ${{ inputs.product }}-worker
@@ -205,14 +205,14 @@ jobs:
 
       - name: Attest Worker image
         if: github.ref_type != 'tag' && inputs.has_worker
-        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1.6.5
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker@${{ steps.build-worker.outputs.image-digest }}
 
       - name: Build, scan & attest Migrator
         if: github.ref_type != 'tag' && inputs.has_migrator
         id: build-migrator
-        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
+        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1.6.5
         with:
           ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
           image-name: ${{ inputs.product }}-migrator
@@ -244,7 +244,7 @@ jobs:
 
       - name: Attest Migrator image
         if: github.ref_type != 'tag' && inputs.has_migrator
-        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
+        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1.6.5
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator@${{ steps.build-migrator.outputs.image-digest }}
 
@@ -262,7 +262,7 @@ jobs:
       ENVIRONMENT: ${{ needs.context.outputs.environment }}
     steps:
       - name: Setup AWS OIDC (deploy role)
-        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1.6.5
         with:
           role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-deploy-${{ env.ENVIRONMENT }}
           region: ${{ inputs.aws_region }}
@@ -527,7 +527,7 @@ jobs:
 
       - name: Run database migrations
         if: inputs.has_migrator
-        uses: QNSC-VN/qnsc-ci/actions/run-db-migration@v1
+        uses: QNSC-VN/qnsc-ci/actions/run-db-migration@v1.6.5
         with:
           cluster: ${{ vars.ECS_CLUSTER }}
           task-definition: ${{ steps.migrator-taskdef.outputs.arn }}
@@ -601,7 +601,7 @@ jobs:
       # and nothing deregisters on its result.
       - name: Post-deploy readiness check
         if: vars.APP_URL != ''
-        uses: QNSC-VN/qnsc-ci/actions/post-deploy-health-check@v1
+        uses: QNSC-VN/qnsc-ci/actions/post-deploy-health-check@v1.6.5
         with:
           url: ${{ vars.APP_URL }}/v1/readyz
           timeout-seconds: '120'
@@ -622,7 +622,7 @@ jobs:
 
       - name: Notify deploy result
         if: always()
-        uses: QNSC-VN/qnsc-ci/actions/notify-deploy@v1
+        uses: QNSC-VN/qnsc-ci/actions/notify-deploy@v1.6.5
         with:
           webhook-url: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
           status: ${{ job.status == 'success' && 'success' || (steps.verify.outputs.outcome == 'rollback' && 'rollback' || 'failure') }}
