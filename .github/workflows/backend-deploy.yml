@@ -428,7 +428,7 @@ jobs:
       # Recovers a develop environment that has been put to sleep: a stopped RDS
       # instance, or services left at desiredCount=0. Without this a deploy landing
       # on a sleeping environment would (a) time out on the DB and (b) start zero
-      # tasks, so verify never sees the new image. Start RDS (wait up to 8 min) and
+      # tasks, so verify never sees the new image. Start RDS (waiting for it to come up) and
       # scale any service at desiredCount=0 back to 1.
       #
       # THIS STEP IS ONE HALF OF A LOOP. A previous version of this comment said no
@@ -475,16 +475,28 @@ jobs:
                 --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" >/dev/null \
                 || echo "::warning::start-db-instance failed; will keep polling in case another actor started it"
             fi
-            echo "Waiting for RDS to become available (timeout: 8 min)..."
-            for i in $(seq 1 32); do
-              sleep 15
+            # 15 minutes, from ONE pair of constants. The budget used to be 8 minutes
+            # restated in three places (the banner, the loop bound, the failure line), and a
+            # cold start of a stopped single-AZ instance regularly exceeds it — rally's
+            # 2026-08-05 deploy timed out at 8:00 and the instance came up shortly after, so
+            # the retry passed with no change. Note what that failure looks like: this step
+            # SUCCEEDS in starting RDS and then fails on the wait, leaving a woken database,
+            # no new code, and a red deploy that would have passed a minute later.
+            #
+            # Deliberately still a hard failure rather than a warning: the migration step
+            # cannot run without the database, so continuing only moves the error somewhere
+            # less obvious. The budget was wrong, not the strictness.
+            local attempts=60 interval=15
+            echo "Waiting for RDS to become available (timeout: $(( attempts * interval / 60 )) min)..."
+            for i in $(seq 1 "$attempts"); do
+              sleep "$interval"
               status=$(aws rds describe-db-instances \
                 --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" \
                 --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "unknown")
-              echo "  [${i}/32] RDS: $status"
+              echo "  [${i}/${attempts}] RDS: $status"
               [ "$status" = "available" ] && { echo "RDS is available."; return 0; }
             done
-            echo "Timed out waiting for RDS after 8 minutes."
+            echo "Timed out waiting for RDS after $(( attempts * interval / 60 )) minutes."
             return 1
           }
           ensure_rds
