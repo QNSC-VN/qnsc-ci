@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.6](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.5...v1.6.6) (2026-08-05)
+
+
+### Bug Fixes
+
+* **backend-deploy:** give a cold RDS 15 minutes to wake, from one pair of constants ([#66](https://github.com/QNSC-VN/qnsc-ci/issues/66)) ([d83838e](https://github.com/QNSC-VN/qnsc-ci/commit/d83838e93e663ef6604f60818efca34e4c7484e6))
+
 ## [1.6.5](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.4...v1.6.5) (2026-07-30)
 
 
