@@ -29,6 +29,20 @@ on:
       # Manifest does not contain descriptor matching platform".
       build_runner:    { type: string, default: "ubuntu-latest" }
       image_platforms: { type: string, default: "" }
+      # Path of the READINESS probe, appended to the environment's APP_URL for the
+      # post-deploy gate below. Defaults to rally's/opshub's `/v1/readyz`, so a caller
+      # that passes nothing keeps today's behaviour byte for byte.
+      #
+      # It is an input rather than a fixed string because health endpoints are
+      # INFRASTRUCTURE, not API surface, and products place them differently:
+      # rally serves `/v1/readyz` (inside the version prefix), qnsc-kb serves
+      # `/health/ready` (outside its own `/api/v1`). Renaming either to match the
+      # other would cost an app change, an infra change (`health_check_path`, the
+      # Route 53 check) and a deploy, for no behaviour change.
+      #
+      # Whatever is passed MUST be the readiness probe, never liveness — see the
+      # "Post-deploy readiness check" step for why that distinction is load-bearing.
+      health_path:     { type: string, default: "/v1/readyz" }
     secrets:
       AWS_ACCOUNT_ID:       { required: true }
       SLACK_DEPLOY_WEBHOOK: { required: false }
@@ -607,15 +621,19 @@ jobs:
       # That is not hypothetical — it is reachable today by deploying an environment
       # whose cache node has been removed.
       #
-      # `/v1/readyz` checks postgres and the cache, so a deploy that produces a running
-      # but unusable service fails here instead of being reported as a success. This is
-      # the one place a dependency-coupled probe belongs: it runs once, after the roll,
-      # and nothing deregisters on its result.
+      # A readiness probe checks postgres and the cache, so a deploy that produces a
+      # running but unusable service fails here instead of being reported as a success.
+      # This is the one place a dependency-coupled probe belongs: it runs once, after the
+      # roll, and nothing deregisters on its result.
+      #
+      # The path comes from `health_path` (default `/v1/readyz`). Pass a product's own
+      # readiness path here and NEVER its liveness path — liveness answers 200 without
+      # touching a dependency, which is exactly what makes it useless as a deploy gate.
       - name: Post-deploy readiness check
         if: vars.APP_URL != ''
         uses: QNSC-VN/qnsc-ci/actions/post-deploy-health-check@v1
         with:
-          url: ${{ vars.APP_URL }}/v1/readyz
+          url: ${{ vars.APP_URL }}${{ inputs.health_path }}
           timeout-seconds: '120'
 
       - name: Deployment summary
