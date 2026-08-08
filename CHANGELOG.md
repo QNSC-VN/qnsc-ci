@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.6...v1.7.0) (2026-08-08)
+
+
+### Features
+
+* **backend-deploy:** add health_path input for the post-deploy readiness gate ([#69](https://github.com/QNSC-VN/qnsc-ci/issues/69)) ([cdccb5b](https://github.com/QNSC-VN/qnsc-ci/commit/cdccb5b85f25bde49326c1134bd617ee3b725737))
+
 ## [1.6.6](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.5...v1.6.6) (2026-08-05)
 
 
