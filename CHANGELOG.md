@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.7.0...v1.7.1) (2026-08-10)
+
+
+### Bug Fixes
+
+* **web-deploy:** export VITE_API_BASE_URL and assert it reaches the bundle ([#71](https://github.com/QNSC-VN/qnsc-ci/issues/71)) ([87cf061](https://github.com/QNSC-VN/qnsc-ci/commit/87cf0618d06d33d625863a8205206062be817e9c))
+
 ## [1.7.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.6.6...v1.7.0) (2026-08-08)
 
 
