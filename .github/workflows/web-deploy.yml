@@ -143,9 +143,25 @@ jobs:
         run: npm ci
 
       # ── Build — VITE_* baked in at build time (env-scoped) ─────────────────
+      #
+      # VITE_API_URL and VITE_API_BASE_URL are BOTH here because the two SPA shapes we
+      # run are genuinely different, and collapsing them onto one name would be a trap:
+      #
+      #   same-origin BFF (rally)  — builds with VITE_API_URL deliberately EMPTY, so the
+      #     app calls relative /v1/* paths that a Pages Function proxies to the API. That
+      #     is required for its __Host- session cookie.
+      #   direct bearer-token API (qnsc-kb) — needs the ABSOLUTE api origin baked in,
+      #     because the SPA and the API are on different hostnames.
+      #
+      # One shared name would mean "empty is correct" for one product and "empty is
+      # broken" for the other, and being wrong is SILENT: the app falls back to a
+      # relative path, Cloudflare Pages answers it with index.html, and every API call
+      # returns HTML with a 200 instead of failing. The assertion below is what makes it
+      # loud.
       - name: Build
         env:
           VITE_API_URL:         ${{ vars.VITE_API_URL }}
+          VITE_API_BASE_URL:    ${{ vars.VITE_API_BASE_URL }}
           VITE_APP_ENV:         ${{ vars.VITE_APP_ENV }}
           BUILD_COMMAND:  ${{ inputs.build_command }}
           PACKAGE_MANAGER: ${{ inputs.package_manager }}
@@ -161,6 +177,40 @@ jobs:
           else
             pnpm --filter "$WEB_PACKAGE" build
           fi
+
+      # ── Assert the API origin actually reached the bundle ──────────────────
+      # A VITE_* variable that never arrives does not fail the build — Vite substitutes
+      # undefined, the app takes its relative-path fallback, and Cloudflare Pages serves
+      # index.html for every API call. The result is a deployed site that looks healthy
+      # and cannot log in, which is exactly how qnsc-kb shipped: the caller published
+      # VITE_API_BASE_URL while this workflow only exported VITE_API_URL, and nothing
+      # anywhere said so.
+      #
+      # Only checked when the variable is set AND absolute. A product that builds with it
+      # empty on purpose (a same-origin BFF) is skipped, not failed.
+      - name: Verify the API origin is baked into the bundle
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          VITE_API_URL:      ${{ vars.VITE_API_URL }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          DIST: ${{ inputs.web_dist_path }}
+        run: |
+          set -euo pipefail
+          for name in VITE_API_URL VITE_API_BASE_URL; do
+            value="${!name:-}"
+            case "$value" in
+              https://*) ;;
+              *) continue ;;   # unset, or deliberately relative — nothing to assert
+            esac
+            if grep -rqF "$value" "$DIST"; then
+              echo "✓ $name ($value) is present in $DIST"
+            else
+              echo "::error::$name is set to '$value' but does not appear anywhere in $DIST."
+              echo "::error::The build did not pick it up — the app will fall back to a relative path and every API call will return index.html."
+              echo "::error::Check that the SPA reads import.meta.env.$name and that the variable is scoped to this deploy environment."
+              exit 1
+            fi
+          done
 
       # ── D1 backup — capture a restore point BEFORE any schema change ───────
       # Migrations against --remote are irreversible; a data app must have a
