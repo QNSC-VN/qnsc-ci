@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.7.1...v1.7.2) (2026-08-11)
+
+
+### Bug Fixes
+
+* **infra-plan:** plan without reading secret values ([#73](https://github.com/QNSC-VN/qnsc-ci/issues/73)) ([a37701b](https://github.com/QNSC-VN/qnsc-ci/commit/a37701b5937df9e2ab0a87b8a53ab5a2b5231179))
+
 ## [1.7.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.7.0...v1.7.1) (2026-08-10)
 
 
