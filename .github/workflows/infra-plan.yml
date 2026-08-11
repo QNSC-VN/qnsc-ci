@@ -147,8 +147,29 @@ jobs:
           # The infra-plan OIDC role is read-only and has no DynamoDB write
           # permission, so it cannot acquire the state lock. Plan never mutates
           # state, so run lock-free (apply still locks via the admin apply role).
+          #
+          # -refresh=false because that role carries AWS ReadOnlyAccess, which
+          # deliberately EXCLUDES secretsmanager:GetSecretValue — and refreshing an
+          # aws_secretsmanager_secret_version needs exactly that. Without this the plan
+          # died on the qnsc-kb tunnel token:
+          #
+          #   Error: reading Secrets Manager Secret Version ... AccessDeniedException:
+          #   not authorized to perform: secretsmanager:GetSecretValue
+          #
+          # so infra PRs got no plan review at all, which is worse than planning against
+          # state.
+          #
+          # Granting the permission instead was the obvious move and is the wrong one: a
+          # pull request can edit the Terraform that this role then runs, so read access
+          # to secret VALUES from a PR-triggered role is an exfiltration path — `sensitive`
+          # marking is not a boundary, `nonsensitive()` unwraps it. iam-oidc withholds
+          # GetSecretValue from CI roles on purpose; this keeps that intact.
+          #
+          # What it costs: the plan is computed against recorded state, so drift made
+          # outside Terraform is not shown. Apply still refreshes, with the apply role, so
+          # drift is caught there rather than never.
           set +e
-          tofu plan -input=false -lock=false -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan.txt
+          tofu plan -input=false -lock=false -refresh=false -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan.txt
           echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Post plan to PR
