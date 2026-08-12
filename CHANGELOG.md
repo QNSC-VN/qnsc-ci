@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.7.2...v1.8.0) (2026-08-12)
+
+
+### Features
+
+* **ci:** report shared pin drift across the product repos weekly ([#75](https://github.com/QNSC-VN/qnsc-ci/issues/75)) ([9df6b34](https://github.com/QNSC-VN/qnsc-ci/commit/9df6b3407e72cbc25963fd61fa1820ac2874a687))
+
 ## [1.7.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.7.1...v1.7.2) (2026-08-11)
 
 
