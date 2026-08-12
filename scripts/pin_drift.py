@@ -20,21 +20,28 @@ A REPORT, NOT A GATE, deliberately. Holding a version back during a migration is
 decision, and a failing build would be ignored or worked around rather than read. This
 prints a table. Escalate only if the table gets ignored.
 
-Adding a product: append to REPOS. Nothing else.
+Coverage is DISCOVERED from the org, not listed here — see consumer_repos(). A new
+product repo appears in the next run with no edit to this file.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
 OWNER = "QNSC-VN"
-REPOS = ["rally", "qnsc-kb-backend"]
+
+# The two repos that DEFINE the shared versions, excluded because they are not consumers:
+# qnsc-tf-modules holds the modules rather than pinning them, and qnsc-ci referencing its
+# own actions would appear as a repository disagreeing with itself about nothing.
+SOURCES = {"qnsc-ci", "qnsc-tf-modules"}
 
 # `qnsc-ci/.github/workflows/security.yml@v1.7.2`, `qnsc-ci/actions/setup-tofu-aws@v1`
 CI_PIN = re.compile(r"qnsc-ci/[^@\s]+@(v\d+(?:\.\d+){0,2})")
@@ -46,7 +53,60 @@ SEMVER_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
 def run(*args: str, cwd: str | None = None) -> str:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True).stdout
+    """Run a command, and on failure say what failed and why.
+
+    `check=True` alone raises CalledProcessError with the captured stderr hidden inside it,
+    so a transient clone failure printed a traceback ending at the subprocess call and
+    nothing about the network or the repository.
+    """
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(
+            f"pin-drift: `{' '.join(args)}` exited {result.returncode}\n"
+            f"{result.stderr.strip() or '(no stderr)'}"
+        )
+    return result.stdout
+
+
+def consumer_repos() -> tuple[list[str], list[str]]:
+    """Every active repo in the org that could pin a shared version.
+
+    DISCOVERED, NOT LISTED, and the first version of this file got that wrong. It named
+    rally and qnsc-kb-backend; the org has a dozen active repos, and the one repo still on
+    an old qnsc-ci pin — qnsc-kb-frontend — was the one the list omitted. A report whose
+    coverage is hand-maintained has the same defect it exists to find, one level up. It
+    would also have missed opshub, which shares this boilerplate by policy, and qnsc-infra,
+    which consumes the terraform modules directly.
+
+    Archived repos are excluded: rally-api, rally-infra, opshub-api and friends are frozen
+    predecessors, so their pins are history rather than drift.
+
+    PRIVATE repos are excluded too, and that is a real limitation rather than a choice —
+    the job holds no cross-repo token, so it cannot clone them. It is reported in the
+    output instead of being silently dropped, because a repo missing from a coverage report
+    is exactly the failure this function was written to remove.
+    """
+    request = urllib.request.Request(
+        f"https://api.github.com/orgs/{OWNER}/repos?per_page=100",
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    # Authenticate when a token is available: unauthenticated API calls are rate-limited
+    # per IP, and GitHub-hosted runners share addresses, so an anonymous call can fail for
+    # reasons that have nothing to do with this org.
+    if token := os.environ.get("GITHUB_TOKEN"):
+        request.add_header("Authorization", f"Bearer {token}")
+
+    with urllib.request.urlopen(request, timeout=30) as response:
+        repos = json.load(response)
+
+    if len(repos) == 100:  # pragma: no cover - the org is nowhere near this
+        print("pin-drift: 100 repos returned; pagination is now required", file=sys.stderr)
+
+    active = [r for r in repos if not r["archived"] and r["name"] not in SOURCES]
+    return (
+        sorted(r["name"] for r in active if not r["private"]),
+        sorted(r["name"] for r in active if r["private"]),
+    )
 
 
 def version_key(v: str) -> tuple[int, ...]:
@@ -109,12 +169,18 @@ def classify(values: list[str], newest: str) -> str:
 def main() -> int:
     ci_latest, module_latest = newest_releases()
 
+    candidates, unreadable = consumer_repos()
     used: dict[str, tuple[set[str], dict[str, set[str]]]] = {}
     with tempfile.TemporaryDirectory() as tmp:
-        for repo in REPOS:
+        for repo in candidates:
             dest = Path(tmp) / repo
             run("git", "clone", "-q", "--depth", "1", f"https://github.com/{OWNER}/{repo}", str(dest))
             used[repo] = pins_used(dest)
+
+    # A repo pinning nothing is not a consumer — product-docs and .github would otherwise
+    # add empty columns that make the table wider and say less.
+    REPOS = [r for r in candidates if used[r][0] or used[r][1]]
+    skipped = [r for r in candidates if r not in REPOS]
 
     rows: list[tuple[str, list[str], str, str]] = []
 
@@ -128,27 +194,50 @@ def main() -> int:
         if any(values):
             rows.append((module, values, module_latest[module], classify(values, module_latest[module])))
 
-    out = [
-        "## Shared pin drift",
-        "",
-        f"| pin | {' | '.join(REPOS)} | newest | status |",
-        f"|---|{'---|' * len(REPOS)}---|---|",
-    ]
-    for name, values, newest, status in rows:
-        cells = " | ".join(f"`{v}`" if v else "—" for v in values)
-        out.append(f"| {name} | {cells} | `{newest}` | {status} |")
+    # ONE SECTION PER FINDING, not a repo-by-pin matrix. The matrix was fine for the two
+    # repos this started with and became unreadable at ten: fifteen module rows against ten
+    # columns is 150 cells of which most are "—", and a table nobody reads is the failure
+    # mode this whole report was written to avoid.
+    #
+    # Grouping by VERSION rather than by repo also states the finding directly. "opshub is
+    # on ecr v1.1.0 and everyone else is on v2.0.0" is the sentence someone acts on; a row
+    # of ten cells makes the reader derive it.
+    out = ["## Shared pin drift", ""]
 
-    drifted = [r for r in rows if r[3] != "ok"]
-    out += [""] + (
-        [
+    findings = [r for r in rows if r[3] != "ok"]
+    if findings:
+        for name, values, newest, status in findings:
+            by_version: dict[str, list[str]] = defaultdict(list)
+            for repo, value in zip(REPOS, values):
+                if value:
+                    by_version[value].append(repo)
+            out.append(f"### {name} — {status}, newest `{newest}`")
+            for version in sorted(by_version, key=lambda v: version_key(v.split(",")[0])):
+                marker = "" if version == newest else "  ←"
+                out.append(f"- `{version}`{marker} — {', '.join(by_version[version])}")
+            out.append("")
+        out += [
             "`diverged` = the repos disagree. `stale` = they agree but a newer release exists.",
             "",
             "Neither is automatically wrong. Holding a version back during a migration is",
             "legitimate; not knowing you are behind is not.",
+            "",
         ]
-        if drifted
-        else ["All shared pins agree and are current."]
-    )
+    else:
+        out += ["All shared pins agree and are current.", ""]
+
+    current = [r[0] for r in rows if r[3] == "ok"]
+    if current:
+        out.append(f"Current everywhere: {', '.join(current)}.")
+
+    out.append(f"Covered {len(REPOS)} of {len(candidates)} active public repos in {OWNER}.")
+    if skipped:
+        out.append(f"Pinned nothing, so not consumers: {', '.join(skipped)}.")
+    if unreadable:
+        # Named rather than omitted: this job holds no cross-repo token, so a private repo
+        # cannot be cloned. Saying so is the difference between a known gap and the silent
+        # one that made this report necessary.
+        out.append(f"NOT COVERED (private, no token): {', '.join(unreadable)}.")
 
     report = "\n".join(out)
     print(report)
