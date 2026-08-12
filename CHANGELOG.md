@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.8.0...v1.9.0) (2026-08-12)
+
+
+### Features
+
+* **ci:** discover pin-drift coverage instead of listing it ([#78](https://github.com/QNSC-VN/qnsc-ci/issues/78)) ([43a0379](https://github.com/QNSC-VN/qnsc-ci/commit/43a0379a0a86ab534e8095a15949608d745aa23d))
+
 ## [1.8.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.7.2...v1.8.0) (2026-08-12)
 
 
