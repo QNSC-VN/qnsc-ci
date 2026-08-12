@@ -20,7 +20,9 @@ A REPORT, NOT A GATE, deliberately. Holding a version back during a migration is
 decision, and a failing build would be ignored or worked around rather than read. This
 prints a table. Escalate only if the table gets ignored.
 
-Adding a product: append to REPOS. Nothing else.
+Adding a product: append to REPOS. Nothing else — qnsc-kb-frontend was missing from
+the first version of this list, so the one repo still on an old qnsc-ci pin was the one
+the report could not see.
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ from collections import defaultdict
 from pathlib import Path
 
 OWNER = "QNSC-VN"
-REPOS = ["rally", "qnsc-kb-backend"]
+REPOS = ["rally", "qnsc-kb-backend", "qnsc-kb-frontend"]
 
 # `qnsc-ci/.github/workflows/security.yml@v1.7.2`, `qnsc-ci/actions/setup-tofu-aws@v1`
 CI_PIN = re.compile(r"qnsc-ci/[^@\s]+@(v\d+(?:\.\d+){0,2})")
@@ -46,7 +48,22 @@ SEMVER_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
 def run(*args: str, cwd: str | None = None) -> str:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True).stdout
+    """Run a command, and on failure say what failed and why.
+
+    `check=True` alone raises CalledProcessError with the captured stderr hidden inside
+    it, so a transient clone failure printed a traceback ending in the subprocess call
+    and nothing about the network or the repository. That happened while adding
+    qnsc-kb-frontend and cost more time to diagnose than the failure deserved.
+    """
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(
+            f"pin-drift: `{' '.join(args)}` exited {result.returncode}\n"
+            f"{result.stderr.strip() or '(no stderr)'}\n"
+            "A repository made private would fail here — that is deliberate, because a "
+            "silently empty report is worse than a loud one."
+        )
+    return result.stdout
 
 
 def version_key(v: str) -> tuple[int, ...]:
