@@ -1,0 +1,32 @@
+# =============================================================================
+# Pin drift — weekly report on shared version pins across the product repos.
+#
+# The reasoning, the incident that prompted it, and why this reports rather than
+# gates all live in scripts/pin_drift.py. This file only schedules it.
+# =============================================================================
+name: Pin drift
+
+on:
+  schedule:
+    # Monday 08:00 Asia/Ho_Chi_Minh. Cron is UTC-only, hence 01:00. Weekly because the
+    # cost of a stale pin is measured in days — rally's was ten of them.
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Report shared-pin drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Every repo read here is public, so this needs no App token and no write scope.
+      # If a product is ever made private this job starts failing on the clone, which is
+      # the right moment to notice rather than a silently empty report.
+      - name: Collect and compare pins
+        run: python3 scripts/pin_drift.py
