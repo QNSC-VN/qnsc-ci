@@ -248,6 +248,49 @@ jobs:
           path: api-digest.txt
           retention-days: 1
 
+  # ── WAKE (develop) — overlap the cold start with the build ─────────────────
+  # develop sleeps 00:00-08:00 ICT, and a stopped single-AZ RDS takes 3-5 minutes to
+  # reach `available`. That wait used to sit INSIDE the deploy job, after the image was
+  # already built — so an out-of-hours merge paid the build and the cold start one after
+  # the other. Started here it runs alongside the build and is finished before the
+  # deploy job asks for a database.
+  #
+  # DEVELOP ONLY, and not because production never sleeps — rally's production RDS is
+  # idled pre-launch and genuinely needs this. It is that a second job carrying
+  # `environment: production` would demand a SECOND reviewer approval per release. The
+  # deploy job still calls the same action, so production is covered there.
+  #
+  # Failure here is deliberately not fatal to the run: the deploy job repeats the call
+  # and will fail there if the database really cannot be started, with the migration
+  # step as the thing that needed it. Failing twice for one cause reads as two problems.
+  wake:
+    name: Wake ${{ needs.context.outputs.environment }}
+    if: needs.context.outputs.environment == 'develop'
+    needs: context
+    runs-on: ubuntu-latest
+    environment: ${{ needs.context.outputs.environment }}
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Setup AWS OIDC (deploy role)
+        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+        with:
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-deploy-${{ needs.context.outputs.environment }}
+          region: ${{ inputs.aws_region }}
+
+      - name: Ensure environment is awake (RDS + ECS)
+        uses: QNSC-VN/qnsc-ci/actions/ensure-environment-awake@v1
+        with:
+          rds-identifier: ${{ vars.RDS_INSTANCE_ID }}
+          ecs-cluster: ${{ vars.ECS_CLUSTER }}
+          ecs-services: ${{ vars.ECS_API_SERVICE }} ${{ vars.ECS_WORKER_SERVICE }}
+          region: ${{ inputs.aws_region }}
+
   deploy:
     name: Deploy (${{ needs.context.outputs.environment }})
     runs-on: ubuntu-latest
@@ -456,72 +499,26 @@ jobs:
       # Never runs on prod at all — the step is gated on ENVIRONMENT == 'develop', which
       # is the real guarantee. Do not restate prod's RDS topology here: it is pre-launch
       # single-AZ today and Multi-AZ after go-live, and a comment that tracks it will rot.
-      - name: Ensure dev environment is awake (RDS + ECS)
+      # Idempotent and cheap when already awake, so this stays even though the `wake` job
+      # has usually done it in parallel with the build: that job is best-effort
+      # (continue-on-error), so this call is what actually guarantees the migration step
+      # has a database.
+      #
+      # STILL develop-only, unchanged. Extending it to production looks right — rally's
+      # production RDS is idled pre-launch and its own comment claims `ensure_rds` starts
+      # it — but the ECS half of this action scales services from 0 to 1, and production
+      # sits at min_count = 0 DELIBERATELY before go-live. Waking it on every release
+      # would start tasks nobody asked for and quietly bill for them. That gap between
+      # rally's comment and this gate is real and worth closing, separately and on
+      # purpose, not as a side effect of moving a step into a job.
+      - name: Ensure environment is awake (RDS + ECS)
         if: env.ENVIRONMENT == 'develop'
-        env:
-          AWS_REGION: ${{ inputs.aws_region }}
-          RDS_IDENTIFIER: ${{ vars.RDS_INSTANCE_ID }}
-          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-          ECS_API_SERVICE: ${{ vars.ECS_API_SERVICE }}
-          ECS_WORKER_SERVICE: ${{ vars.ECS_WORKER_SERVICE }}
-        run: |
-          # ── RDS: start it if something stopped it, then wait for available ──
-          ensure_rds() {
-            [ -z "$RDS_IDENTIFIER" ] && { echo "No RDS_INSTANCE_ID var — skipping RDS guard."; return 0; }
-            local status
-            status=$(aws rds describe-db-instances \
-              --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" \
-              --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "not-found")
-            echo "RDS status: $status"
-            [ "$status" = "available" ] && return 0
-            if [ "$status" = "stopped" ]; then
-              echo "RDS is stopped — starting it now..."
-              aws rds start-db-instance \
-                --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" >/dev/null \
-                || echo "::warning::start-db-instance failed; will keep polling in case another actor started it"
-            fi
-            # 15 minutes, from ONE pair of constants. The budget used to be 8 minutes
-            # restated in three places (the banner, the loop bound, the failure line), and a
-            # cold start of a stopped single-AZ instance regularly exceeds it — rally's
-            # 2026-08-05 deploy timed out at 8:00 and the instance came up shortly after, so
-            # the retry passed with no change. Note what that failure looks like: this step
-            # SUCCEEDS in starting RDS and then fails on the wait, leaving a woken database,
-            # no new code, and a red deploy that would have passed a minute later.
-            #
-            # Deliberately still a hard failure rather than a warning: the migration step
-            # cannot run without the database, so continuing only moves the error somewhere
-            # less obvious. The budget was wrong, not the strictness.
-            local attempts=60 interval=15
-            echo "Waiting for RDS to become available (timeout: $(( attempts * interval / 60 )) min)..."
-            for i in $(seq 1 "$attempts"); do
-              sleep "$interval"
-              status=$(aws rds describe-db-instances \
-                --db-instance-identifier "$RDS_IDENTIFIER" --region "$AWS_REGION" \
-                --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "unknown")
-              echo "  [${i}/${attempts}] RDS: $status"
-              [ "$status" = "available" ] && { echo "RDS is available."; return 0; }
-            done
-            echo "Timed out waiting for RDS after $(( attempts * interval / 60 )) minutes."
-            return 1
-          }
-          ensure_rds
-
-          # ── ECS: restore any service left at 0, otherwise the
-          #    deploy starts no tasks and the verify step times out. ──
-          for SVC in "$ECS_API_SERVICE" "$ECS_WORKER_SERVICE"; do
-            [ -z "$SVC" ] && continue
-            desired=$(aws ecs describe-services \
-              --cluster "$ECS_CLUSTER" --services "$SVC" --region "$AWS_REGION" \
-              --query 'services[0].desiredCount' --output text 2>/dev/null || echo "0")
-            if [ "$desired" = "0" ]; then
-              echo "ECS $SVC is scaled to 0 — scaling up to 1"
-              aws ecs update-service --cluster "$ECS_CLUSTER" --service "$SVC" \
-                --desired-count 1 --region "$AWS_REGION" >/dev/null
-            else
-              echo "ECS $SVC desiredCount=$desired — no scale-up needed"
-            fi
-          done
-
+        uses: QNSC-VN/qnsc-ci/actions/ensure-environment-awake@v1
+        with:
+          rds-identifier: ${{ vars.RDS_INSTANCE_ID }}
+          ecs-cluster: ${{ vars.ECS_CLUSTER }}
+          ecs-services: ${{ vars.ECS_API_SERVICE }} ${{ vars.ECS_WORKER_SERVICE }}
+          region: ${{ inputs.aws_region }}
       - name: Update Migrator task definition to ${{ env.IMAGE_TAG }}
         id: migrator-taskdef
         if: inputs.has_migrator
