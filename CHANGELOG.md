@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/QNSC-VN/qnsc-ci/compare/v1.9.1...v1.9.2) (2026-08-13)
+
+
+### Performance Improvements
+
+* **backend-deploy:** wake the environment alongside the build ([#84](https://github.com/QNSC-VN/qnsc-ci/issues/84)) ([221d26d](https://github.com/QNSC-VN/qnsc-ci/commit/221d26d91f09e4582f4ee00567a945346d035c5a))
+
 ## [1.9.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.9.0...v1.9.1) (2026-08-13)
 
 
