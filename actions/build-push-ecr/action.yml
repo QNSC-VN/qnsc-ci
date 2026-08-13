@@ -48,10 +48,35 @@ inputs:
     default: ''
   cache-scope:
     description: >
-      GHA cache scope key — use a unique value per image when building
-      multiple images in the same job (e.g. `api`, `worker`, `migrator`).
+      Cache scope key — a unique value per image (e.g. `api`, `worker`, `migrator`).
+      Used as the GHA cache scope; the registry backend keys on the image name instead
+      and ignores this.
     required: false
     default: default
+  cache-backend:
+    description: >
+      Where the build cache lives: `registry` (default) or `gha`.
+
+      REGISTRY is the default because the GitHub Actions cache is capped at 10 GB PER
+      REPOSITORY, shared with every other workflow in it. A product whose images carry
+      multi-GB layers blows through that on its own and evicts constantly — qnsc-kb
+      re-downloaded a 2.2 GB model on most builds while appearing to be cached, and
+      starved the rest of the repo's caches doing it. Registry cache has no such cap.
+
+      Cost is a `:buildcache` tag per image repository, a few GB at $0.10/GB-month. The
+      ECR lifecycle policy leaves it alone: its rules key on the `v` and `sha-` prefixes
+      and on untagged images, and `buildcache` is tagged and matches neither prefix.
+
+      `gha` remains available for a product with small images that would rather not hold
+      cache in ECR at all. Nothing else changes between the two.
+
+      Requires a MUTABLE ECR repository, because each build overwrites the `buildcache`
+      tag. That is not a new constraint: this action already pushes `latest` via
+      `extra-tags`, which needs mutability for the same reason — a product whose
+      repositories are IMMUTABLE (the ecr module's default) is already incompatible with
+      this pipeline before cache enters it. rally, qnsc-kb and opshub all pass MUTABLE.
+    required: false
+    default: registry
   node-auth-token:
     description: >
       Token used by the Dockerfile's `pnpm install` to fetch private
@@ -101,8 +126,23 @@ runs:
         platforms: ${{ inputs.platforms }}
         push: true
         tags: ${{ steps.tags.outputs.tags }}
-        cache-from: type=gha,scope=${{ inputs.cache-scope }}
-        cache-to:   type=gha,mode=max,scope=${{ inputs.cache-scope }}
+        # `image-manifest=true,oci-mediatypes=true` is REQUIRED for ECR, not decoration:
+        # buildx's default cache manifest type is not one ECR accepts, and without these
+        # the export fails with "unsupported manifest media type" AFTER the image itself
+        # has been pushed — a green build with a broken cache write.
+        #
+        # `mode=max` exports every intermediate stage, not just the final one. That is the
+        # whole point for a multi-stage Dockerfile: the expensive layers here are `deps`
+        # and the model bake, neither of which appears in the final image's own layers.
+        #
+        # Cache misses are not failures. `--cache-from` on a repository with no buildcache
+        # tag yet is a no-op, so the first build after enabling this simply populates it.
+        cache-from: ${{ inputs.cache-backend == 'gha'
+          && format('type=gha,scope={0}', inputs.cache-scope)
+          || format('type=registry,ref={0}/{1}:buildcache', inputs.ecr-registry, inputs.image-name) }}
+        cache-to: ${{ inputs.cache-backend == 'gha'
+          && format('type=gha,mode=max,scope={0}', inputs.cache-scope)
+          || format('type=registry,ref={0}/{1}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true', inputs.ecr-registry, inputs.image-name) }}
         provenance: mode=max   # SLSA L3: full build graph with materials
         sbom: true             # embed SBOM as OCI attestation (CycloneDX)
         # Authenticates `pnpm install` against GitHub Packages for private
