@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.1](https://github.com/QNSC-VN/qnsc-ci/compare/v1.9.0...v1.9.1) (2026-08-13)
+
+
+### Performance Improvements
+
+* **backend-deploy:** build the images in parallel ([#80](https://github.com/QNSC-VN/qnsc-ci/issues/80)) ([1baf46f](https://github.com/QNSC-VN/qnsc-ci/commit/1baf46f25fe36e3a903e528817faa3987f09e2b7))
+* **build-push-ecr:** cache to the registry instead of the GitHub Actions cache ([#82](https://github.com/QNSC-VN/qnsc-ci/issues/82)) ([d0a7906](https://github.com/QNSC-VN/qnsc-ci/commit/d0a7906cb042ecfb14917e99c7078be60d5918cb))
+
 ## [1.9.0](https://github.com/QNSC-VN/qnsc-ci/compare/v1.8.0...v1.9.0) (2026-08-12)
 
 
