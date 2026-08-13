@@ -59,6 +59,10 @@ jobs:
       environment: ${{ steps.ctx.outputs.environment }}
       image_tag:   ${{ steps.ctx.outputs.image_tag }}
       source_tag:  ${{ steps.ctx.outputs.source_tag }}
+      # JSON array driving the build matrix. Derived here rather than in the matrix
+      # itself because `strategy.matrix` cannot evaluate `inputs.*` conditionally —
+      # it can only read a value another job produced.
+      services:    ${{ steps.ctx.outputs.services }}
     steps:
       - id: ctx
         run: |
@@ -76,22 +80,30 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
-  build-push:
-    name: ${{ github.ref_type == 'tag' && 'Promote image to ECR' || 'Build & push to ECR' }}
-    runs-on: ${{ inputs.build_runner }}
+          # Which images this product has. `api` is not optional — a backend without
+          # one has nothing to deploy — so it is unconditional and the flags only add.
+          SERVICES='["api"'
+          [[ "${{ inputs.has_worker }}"   == "true" ]] && SERVICES="$SERVICES,\"worker\""
+          [[ "${{ inputs.has_migrator }}" == "true" ]] && SERVICES="$SERVICES,\"migrator\""
+          SERVICES="$SERVICES]"
+          echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+
+  # ── PROMOTE (tag) — retag the exact dev-tested images, no rebuild ───────────
+  # Kept as ONE job, deliberately unlike `build` below: promotion is a few ECR API
+  # calls, so splitting it per service would add three runner startups to save
+  # nothing.
+  promote:
+    name: Promote images to ECR
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
     needs: context
-    timeout-minutes: 45
-    # Expose the attested API image digest so the deploy job can verify the
-    # attestation without re-resolving it via `aws ecr describe-images`
-    # (which the deploy role is intentionally not granted). On main it comes
-    # from the fresh build; on a tag from the promoted image.
+    timeout-minutes: 20
     outputs:
-      api_digest: ${{ steps.build-api.outputs.image-digest || steps.promoted-api-digest.outputs.digest }}
+      api_digest: ${{ steps.promoted-api-digest.outputs.digest }}
     permissions:
       id-token: write
       contents: read
       attestations: write
-      packages: read # build-push-ecr pulls private @qnsc-vn/* from GitHub Packages
     env:
       IMAGE_TAG:  ${{ needs.context.outputs.image_tag }}
       SOURCE_TAG: ${{ needs.context.outputs.source_tag }}
@@ -107,7 +119,6 @@ jobs:
           region: ${{ inputs.aws_region }}
           ecr-login: 'true'
 
-      # ── PROMOTE (tag) — retag the exact dev-tested images, no rebuild ────────
       - name: Compute image list
         id: images
         run: |
@@ -117,7 +128,6 @@ jobs:
           echo "list=$LIST" >> "$GITHUB_OUTPUT"
 
       - name: Promote images ${{ env.SOURCE_TAG }} → ${{ env.IMAGE_TAG }}
-        if: github.ref_type == 'tag'
         uses: QNSC-VN/qnsc-ci/actions/promote-ecr-images@v1
         with:
           image-names: ${{ steps.images.outputs.list }}
@@ -126,7 +136,6 @@ jobs:
           region:      ${{ inputs.aws_region }}
 
       - name: Resolve promoted API digest
-        if: github.ref_type == 'tag'
         id: promoted-api-digest
         env:
           REGION: ${{ inputs.aws_region }}
@@ -139,30 +148,70 @@ jobs:
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Attest promoted API image
-        if: github.ref_type == 'tag'
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
           image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.promoted-api-digest.outputs.digest }}
 
-      # ── BUILD (main) — one build/scan/attest per service via matrix ──────────
-      - name: Build, scan & attest API
-        if: github.ref_type != 'tag'
-        id: build-api
+  # ── BUILD (main) — one job PER SERVICE, in parallel ─────────────────────────
+  # These used to be sequential steps in a single job, under a comment claiming they
+  # were a matrix. On qnsc-kb that cost 20 minutes of wall clock — api 9m, then
+  # worker 7m, then migrator 1m — for work that has no ordering between the images.
+  # In parallel the job takes as long as the slowest single image.
+  #
+  # Runner minutes go up and wall clock goes down. Every repo using this workflow is
+  # public, so Actions minutes are free and that is a pure win; a private product
+  # would be trading minutes for latency, which is still usually the right trade for
+  # a deploy someone is waiting on.
+  #
+  # `fail-fast: false` because a CRITICAL CVE in the worker should not cancel the api
+  # build and leave you unable to tell whether the api was fine.
+  build:
+    name: Build ${{ matrix.service }}
+    if: github.ref_type != 'tag'
+    runs-on: ${{ inputs.build_runner }}
+    needs: context
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.context.outputs.services) }}
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+      packages: read # build-push-ecr pulls private @qnsc-vn/* from GitHub Packages
+    env:
+      IMAGE_TAG: ${{ needs.context.outputs.image_tag }}
+      PRODUCT:   ${{ inputs.product }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Setup AWS OIDC + ECR login
+        id: aws
+        uses: QNSC-VN/qnsc-ci/actions/setup-aws-oidc@v1
+        with:
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ inputs.product }}-github-ecr-push
+          region: ${{ inputs.aws_region }}
+          ecr-login: 'true'
+
+      # image name, Dockerfile target and cache scope are all the service name —
+      # that convention is what lets this be one matrix instead of three blocks.
+      - name: Build & push ${{ matrix.service }}
+        id: build
         uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
         with:
           ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
-          image-name: ${{ inputs.product }}-api
+          image-name: ${{ inputs.product }}-${{ matrix.service }}
           image-tag: ${{ env.IMAGE_TAG }}
           extra-tags: latest
-          build-target: api
-          cache-scope: api
+          build-target: ${{ matrix.service }}
+          cache-scope: ${{ matrix.service }}
           platforms: ${{ inputs.image_platforms }}
 
-      - name: Scan API image
-        if: github.ref_type != 'tag'
+      - name: Scan ${{ matrix.service }} image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-${{ matrix.service }}:${{ env.IMAGE_TAG }}'
           format: table
           exit-code: '1'
           severity: CRITICAL
@@ -170,102 +219,44 @@ jobs:
         # Trivy resolves a remote image index to linux/amd64 unless told otherwise, so a
         # single-arch arm64 image fails with "no child with platform linux/amd64 in
         # index". Derived from the RUNNER, not from `image_platforms`: the build ran on
-        # this same runner, so its architecture IS the one the image was built for. That
-        # stays correct for both the x86 default and an ARM opt-in, needs no parsing of a
-        # possibly-multi-value input, and is always non-empty — so there is no
-        # empty-string edge case in Trivy's platform parsing. The pinned trivy-action has
-        # no `platform` input; TRIVY_PLATFORM is the CLI flag's env binding.
+        # this same runner, so its architecture IS the one the image was built for.
         env:
           TRIVY_PLATFORM: linux/${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
 
-      - name: Attest API image
-        if: github.ref_type != 'tag'
+      - name: Attest ${{ matrix.service }} image
         uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
         with:
-          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-api@${{ steps.build-api.outputs.image-digest }}
+          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-${{ matrix.service }}@${{ steps.build.outputs.image-digest }}
 
-      - name: Build, scan & attest Worker
-        if: github.ref_type != 'tag' && inputs.has_worker
-        id: build-worker
-        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
-        with:
-          ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
-          image-name: ${{ inputs.product }}-worker
-          image-tag: ${{ env.IMAGE_TAG }}
-          extra-tags: latest
-          build-target: worker
-          cache-scope: worker
-          platforms: ${{ inputs.image_platforms }}
+      # The deploy job verifies the API image's attestation and needs its digest.
+      # An ARTIFACT, not a job output: matrix legs share one output namespace, so the
+      # last leg to finish overwrites whatever the others wrote — the api digest would
+      # be whichever image happened to build last, or empty. Only the api leg writes.
+      - name: Publish API digest for the deploy job
+        if: matrix.service == 'api'
+        run: echo "${{ steps.build.outputs.image-digest }}" > api-digest.txt
 
-      - name: Scan Worker image
-        if: github.ref_type != 'tag' && inputs.has_worker
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+      # ⚠ upload-artifact and download-artifact MUST STAY ON THE SAME MAJOR. v4 changed
+      # the artifact backend, so a v4 upload cannot be read by a v3 download or vice
+      # versa. This repo pins upload-artifact v7 elsewhere (web-deploy, rally CI) with no
+      # matching download — bumping only one side here breaks the deploy at the download
+      # step, after the images are already built and pushed.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: matrix.service == 'api'
         with:
-          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker:${{ env.IMAGE_TAG }}'
-          format: table
-          exit-code: '1'
-          severity: CRITICAL
-          ignore-unfixed: true
-        # Trivy resolves a remote image index to linux/amd64 unless told otherwise, so a
-        # single-arch arm64 image fails with "no child with platform linux/amd64 in
-        # index". Derived from the RUNNER, not from `image_platforms`: the build ran on
-        # this same runner, so its architecture IS the one the image was built for. That
-        # stays correct for both the x86 default and an ARM opt-in, needs no parsing of a
-        # possibly-multi-value input, and is always non-empty — so there is no
-        # empty-string edge case in Trivy's platform parsing. The pinned trivy-action has
-        # no `platform` input; TRIVY_PLATFORM is the CLI flag's env binding.
-        env:
-          TRIVY_PLATFORM: linux/${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
-
-      - name: Attest Worker image
-        if: github.ref_type != 'tag' && inputs.has_worker
-        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
-        with:
-          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-worker@${{ steps.build-worker.outputs.image-digest }}
-
-      - name: Build, scan & attest Migrator
-        if: github.ref_type != 'tag' && inputs.has_migrator
-        id: build-migrator
-        uses: QNSC-VN/qnsc-ci/actions/build-push-ecr@v1
-        with:
-          ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
-          image-name: ${{ inputs.product }}-migrator
-          image-tag: ${{ env.IMAGE_TAG }}
-          extra-tags: latest
-          build-target: migrator
-          cache-scope: migrator
-          platforms: ${{ inputs.image_platforms }}
-
-      - name: Scan Migrator image
-        if: github.ref_type != 'tag' && inputs.has_migrator
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          image-ref: '${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator:${{ env.IMAGE_TAG }}'
-          format: table
-          exit-code: '1'
-          severity: CRITICAL
-          ignore-unfixed: true
-        # Trivy resolves a remote image index to linux/amd64 unless told otherwise, so a
-        # single-arch arm64 image fails with "no child with platform linux/amd64 in
-        # index". Derived from the RUNNER, not from `image_platforms`: the build ran on
-        # this same runner, so its architecture IS the one the image was built for. That
-        # stays correct for both the x86 default and an ARM opt-in, needs no parsing of a
-        # possibly-multi-value input, and is always non-empty — so there is no
-        # empty-string edge case in Trivy's platform parsing. The pinned trivy-action has
-        # no `platform` input; TRIVY_PLATFORM is the CLI flag's env binding.
-        env:
-          TRIVY_PLATFORM: linux/${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
-
-      - name: Attest Migrator image
-        if: github.ref_type != 'tag' && inputs.has_migrator
-        uses: QNSC-VN/qnsc-ci/actions/attest-image@v1
-        with:
-          image-ref: ${{ steps.aws.outputs.ecr-registry }}/${{ inputs.product }}-migrator@${{ steps.build-migrator.outputs.image-digest }}
+          name: api-digest
+          path: api-digest.txt
+          retention-days: 1
 
   deploy:
     name: Deploy (${{ needs.context.outputs.environment }})
     runs-on: ubuntu-latest
-    needs: [context, build-push]
+    # `build` and `promote` are mutually exclusive — one is always skipped — so the
+    # default "all needs succeeded" gate would never pass. Require the one that ran.
+    needs: [context, build, promote]
+    if: >-
+      always() && !cancelled() &&
+      (needs.build.result == 'success' || needs.promote.result == 'success')
     environment: ${{ needs.context.outputs.environment }}
     timeout-minutes: 30
     permissions:
@@ -562,14 +553,38 @@ jobs:
           region: ${{ inputs.aws_region }}
           environment: ${{ env.ENVIRONMENT }}
 
+      # On the BUILD path the digest arrives as an artifact — matrix legs cannot
+      # safely share a job output (see the note where it is written). On the PROMOTE
+      # path there is a single job, so a normal output is fine.
+      - name: Fetch API digest from the build
+        if: github.ref_type != 'tag'
+        # Same major as the upload above — see the warning there before bumping either.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: api-digest
+
+      - name: Resolve API digest
+        id: api-digest
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            DIGEST="${{ needs.promote.outputs.api_digest }}"
+          else
+            DIGEST="$(cat api-digest.txt)"
+          fi
+          # Fail loudly rather than let the verification below run against an empty
+          # reference, which reports a confusing "no attestation found".
+          [[ -n "$DIGEST" ]] || { echo "::error::API image digest is empty"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
       - name: Verify image attestation
         env:
           GH_TOKEN: ${{ github.token }}
           # registryId == AWS account id; reuse the same secret used for the
           # deploy role ARN above (single source, no ecr:DescribeRegistry).
           REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ inputs.aws_region }}.amazonaws.com
-          # digest resolved & attested in build-push (no ecr:DescribeImages).
-          DIGEST: ${{ needs.build-push.outputs.api_digest }}
+          # digest resolved & attested in build/promote (no ecr:DescribeImages).
+          DIGEST: ${{ steps.api-digest.outputs.digest }}
         run: |
           set -euo pipefail
           # The attestation is signed by THIS reusable workflow (the trusted
