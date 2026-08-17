@@ -43,6 +43,19 @@ on:
       # Whatever is passed MUST be the readiness probe, never liveness — see the
       # "Post-deploy readiness check" step for why that distinction is load-bearing.
       health_path:     { type: string, default: "/v1/readyz" }
+      # Build cache backend: `registry` (default), `gha` or `none`. Passed straight to
+      # actions/build-push-ecr, whose `cache-backend` input carries the full reasoning.
+      #
+      # Exposed here because the right answer is PER PRODUCT and depends on image size.
+      # A GitHub-hosted runner sits outside AWS, so registry cache is pulled back out of
+      # ECR across the internet on every build, and that egress — not the cache storage —
+      # is the cost. Measured 2026-08-01..16: 147.3 GB, $10.90/mo, against $1.51/mo of
+      # storage. qnsc-kb's cache is 4.28 GB and rally's is 0.33 GB, so the same default
+      # was cheap for one product and the largest growing line on the bill for the other.
+      #
+      # On a PUBLIC repository, Actions minutes are unmetered — so for a large image the
+      # cache buys wall-clock and costs real money. `none` is the honest trade there.
+      cache_backend:   { type: string, default: "registry" }
     secrets:
       AWS_ACCOUNT_ID:       { required: true }
       SLACK_DEPLOY_WEBHOOK: { required: false }
@@ -206,6 +219,7 @@ jobs:
           extra-tags: latest
           build-target: ${{ matrix.service }}
           cache-scope: ${{ matrix.service }}
+          cache-backend: ${{ inputs.cache_backend }}
           platforms: ${{ inputs.image_platforms }}
 
       - name: Scan ${{ matrix.service }} image
