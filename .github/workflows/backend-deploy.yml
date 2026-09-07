@@ -203,7 +203,7 @@ jobs:
       id-token: write
       contents: read
       attestations: write
-      packages: read # build-push-ecr pulls private @qnsc-vn/* from GitHub Packages
+      packages: read # build-push-ecr pulls private @quynhonsemiconductor/* from GitHub Packages
     env:
       IMAGE_TAG: ${{ needs.context.outputs.image_tag }}
       PRODUCT:   ${{ inputs.product }}

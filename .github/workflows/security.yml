@@ -104,7 +104,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      packages: read # pull private @qnsc-vn/* from GitHub Packages during the image build
+      packages: read # pull private @quynhonsemiconductor/* from GitHub Packages during the image build
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,7 +122,7 @@ jobs:
           tags: ${{ inputs.product }}-${{ inputs.image_target }}:scan
           cache-from: type=gha,scope=${{ inputs.image_target }}
           # Authenticates the Dockerfile's `pnpm install` against GitHub Packages
-          # for private @qnsc-vn/* deps. Without this the cold build 401s and the
+          # for private @quynhonsemiconductor/* deps. Without this the cold build 401s and the
           # scan only passes on a warm layer cache (non-deterministic gate).
           secrets: |
             node_auth_token=${{ secrets.GITHUB_TOKEN }}

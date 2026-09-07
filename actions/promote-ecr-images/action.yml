@@ -8,7 +8,7 @@ inputs:
   image-names:
     description: >
       Comma-separated ECR repository names to promote,
-      e.g. `rally-api,rally-worker,rally-migrator`
+      e.g. `rova-api,rova-worker,rova-migrator`
     required: true
   source-tag:
     description: >

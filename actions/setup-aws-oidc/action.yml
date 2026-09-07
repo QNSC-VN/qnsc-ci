@@ -18,7 +18,7 @@ inputs:
     description: >
       IAM role ARN to assume via OIDC.
       Convention: `arn:aws:iam::<ACCOUNT>:role/<product>-<env>-github-<scope>`
-      e.g. `arn:aws:iam::123456789012:role/rally-develop-github-deploy`
+      e.g. `arn:aws:iam::123456789012:role/rova-develop-github-deploy`
     required: true
   region:
     description: AWS region
