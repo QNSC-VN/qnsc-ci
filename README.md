@@ -1,8 +1,8 @@
 # ci
 
-Shared GitHub Actions composite actions for all QNSC product repositories (Rally, OpsHub, and future products).
+Shared GitHub Actions composite actions for all QNSC product repositories (Rova, OpsHub, and future products).
 
-Shared CI/CD logic lives here as versioned composite actions, so bug fixes and improvements propagate automatically to all consumers on the next reference — no copy-paste drift. The examples below use Rally repositories, but the same actions are consumed by OpsHub and any other QNSC product.
+Shared CI/CD logic lives here as versioned composite actions, so bug fixes and improvements propagate automatically to all consumers on the next reference — no copy-paste drift. The examples below use Rova repositories, but the same actions are consumed by OpsHub and any other QNSC product.
 
 ---
 
@@ -113,20 +113,20 @@ SLACK_DEPLOY_WEBHOOK        # Slack or Discord incoming webhook URL
 ### GitHub repository variables
 ```
 AWS_REGION                  # e.g. ap-southeast-1
-ECS_CLUSTER                 # e.g. rally-develop
-ECS_API_SERVICE             # e.g. rally-develop-api
-ECS_WORKER_SERVICE          # e.g. rally-develop-worker
-CLOUDFRONT_DISTRIBUTION_ID  # rally-web only
+ECS_CLUSTER                 # e.g. rova-develop
+ECS_API_SERVICE             # e.g. rova-develop-api
+ECS_WORKER_SERVICE          # e.g. rova-develop-worker
+CLOUDFRONT_DISTRIBUTION_ID  # rova-web only
 PRIVATE_SUBNET_IDS          # comma-separated private subnet IDs
 MIGRATOR_SG_ID              # security group ID for migrator tasks
 ```
 
-### IAM roles (provisioned by rally-infra)
+### IAM roles (provisioned by rova infra)
 | Role convention | Used for |
 |---|---|
-| `rally-<env>-github-deploy` | ECR push, ECS update-service, S3 sync, CloudFront invalidation |
-| `rally-<env>-github-readonly` | CI read-only checks |
-| `rally-<env>-github-infra` | rally-infra only (tofu apply — never from app repos) |
+| `rova-<env>-github-deploy` | ECR push, ECS update-service, S3 sync, CloudFront invalidation |
+| `rova-<env>-github-readonly` | CI read-only checks |
+| `rova-<env>-github-infra` | rova infra only (tofu apply — never from app repos) |
 
 ### Job permissions for attestation
 Jobs calling `attest-image` need:
@@ -165,7 +165,7 @@ jobs:
           pnpm-version: '10.10.0'
       - run: pnpm test:ci
 
-  openapi:                          # rally-api only
+  openapi:                          # rova-api only
     needs: [quality, test]
     runs-on: ubuntu-latest
     steps:
@@ -189,7 +189,7 @@ jobs:
           base-spec-path: base-spec/openapi.json
 ```
 
-### Deploy — rally-api (ECS Fargate)
+### Deploy — rova-api (ECS Fargate)
 
 ```yaml
 permissions:
@@ -210,7 +210,7 @@ jobs:
       - uses: quynhonsemiconductor/ci/actions/setup-aws-oidc@main
         id: aws
         with:
-          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/rally-${{ inputs.environment }}-github-deploy
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/rova-${{ inputs.environment }}-github-deploy
           region: ${{ vars.AWS_REGION }}
           ecr-login: 'true'
 
@@ -219,7 +219,7 @@ jobs:
         id: build
         with:
           ecr-registry: ${{ steps.aws.outputs.ecr-registry }}
-          image-name: rally-api
+          image-name: rova-api
           image-tag: ${{ env.IMAGE_TAG }}
           extra-tags: latest
           build-target: api
@@ -234,7 +234,7 @@ jobs:
       - uses: quynhonsemiconductor/ci/actions/run-db-migration@main
         with:
           cluster: ${{ vars.ECS_CLUSTER }}
-          task-definition: rally-${{ inputs.environment }}-migrator
+          task-definition: rova-${{ inputs.environment }}-migrator
           subnet-ids: ${{ vars.PRIVATE_SUBNET_IDS }}
           security-group-ids: ${{ vars.MIGRATOR_SG_ID }}
           region: ${{ vars.AWS_REGION }}
@@ -259,7 +259,7 @@ jobs:
       # 7. Health-check live endpoint
       - uses: quynhonsemiconductor/ci/actions/post-deploy-health-check@main
         with:
-          url: https://api.rally.io/v1/health/ready
+          url: https://api.rova.io/v1/health/ready
           expected-version: ${{ env.IMAGE_TAG }}
 
       # 8. Notify result
@@ -268,13 +268,13 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
           status: ${{ job.status == 'success' && 'success' || 'failure' }}
-          service: rally-api
+          service: rova-api
           environment: ${{ inputs.environment }}
           version: ${{ env.IMAGE_TAG }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 ```
 
-### Deploy — rally-web (S3 + CloudFront)
+### Deploy — rova-web (S3 + CloudFront)
 
 ```yaml
 permissions:
@@ -295,13 +295,13 @@ jobs:
 
       - uses: quynhonsemiconductor/ci/actions/setup-aws-oidc@main
         with:
-          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/rally-${{ inputs.environment }}-github-deploy
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/rova-${{ inputs.environment }}-github-deploy
           region: ${{ vars.AWS_REGION }}
 
       - run: pnpm build
 
       - run: |
-          aws s3 sync dist/ s3://rally-${{ inputs.environment }}-web \
+          aws s3 sync dist/ s3://rova-${{ inputs.environment }}-web \
             --delete --region ${{ vars.AWS_REGION }}
 
       - uses: quynhonsemiconductor/ci/actions/cloudfront-invalidate@main
@@ -311,14 +311,14 @@ jobs:
 
       - uses: quynhonsemiconductor/ci/actions/post-deploy-health-check@main
         with:
-          url: https://app.rally.io
+          url: https://app.rova.io
 
       - uses: quynhonsemiconductor/ci/actions/notify-deploy@main
         if: always()
         with:
           webhook-url: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
           status: ${{ job.status == 'success' && 'success' || 'failure' }}
-          service: rally-web
+          service: rova-web
           environment: ${{ inputs.environment }}
           version: ${{ github.sha }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -357,14 +357,14 @@ jobs:
     steps:
       - uses: quynhonsemiconductor/ci/actions/setup-aws-oidc@main
         with:
-          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/rally-develop-github-deploy
+          role-arn: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/rova-develop-github-deploy
           region: ${{ vars.AWS_REGION }}
       - uses: quynhonsemiconductor/ci/actions/ecr-cleanup@main
         with:
           repositories: |
-            rally-api
-            rally-worker
-            rally-migrator
+            rova-api
+            rova-worker
+            rova-migrator
           keep-count: '20'
           region: ${{ vars.AWS_REGION }}
 ```
@@ -405,7 +405,7 @@ Call `setup-aws-oidc` with `ecr-login: true` first.
 | Input | Default | Description |
 |---|---|---|
 | `ecr-registry` | **required** | ECR registry URL (`steps.aws.outputs.ecr-registry`) |
-| `image-name` | **required** | ECR repository name (e.g. `rally-api`) |
+| `image-name` | **required** | ECR repository name (e.g. `rova-api`) |
 | `image-tag` | **required** | Primary tag (e.g. `sha-abc1234`) |
 | `extra-tags` | `` | Newline-separated additional tags |
 | `dockerfile` | `Dockerfile` | Path to Dockerfile |
@@ -502,7 +502,7 @@ Wrapper around `ecs-run-task` for the Drizzle migration "third motion". Fails fa
 ### `post-deploy-health-check`
 | Input | Default | Description |
 |---|---|---|
-| `url` | **required** | Full URL to poll (e.g. `https://api.rally.io/v1/health/ready`) |
+| `url` | **required** | Full URL to poll (e.g. `https://api.rova.io/v1/health/ready`) |
 | `expected-version` | `` | Assert this string is in the response body |
 | `timeout-seconds` | `120` | Max poll time |
 | `poll-interval-seconds` | `10` | Poll interval |
@@ -577,7 +577,7 @@ Auto-detects Slack vs Discord by webhook URL pattern.
 |---|---|---|
 | `webhook-url` | **required** | Slack or Discord incoming webhook |
 | `status` | **required** | `started` \| `success` \| `failure` \| `rollback` |
-| `service` | **required** | Service name (e.g. `rally-api`) |
+| `service` | **required** | Service name (e.g. `rova-api`) |
 | `environment` | **required** | Target environment |
 | `version` | `` | Image tag or semver |
 | `run-url` | auto | Link to the GitHub Actions run |

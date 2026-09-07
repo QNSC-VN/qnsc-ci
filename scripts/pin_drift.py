@@ -39,15 +39,15 @@ from pathlib import Path
 OWNER = "quynhonsemiconductor"
 
 # The two repos that DEFINE the shared versions, excluded because they are not consumers:
-# qnsc-tf-modules holds the modules rather than pinning them, and qnsc-ci referencing its
+# tf-modules holds the modules rather than pinning them, and ci referencing its
 # own actions would appear as a repository disagreeing with itself about nothing.
-SOURCES = {"qnsc-ci", "qnsc-tf-modules"}
+SOURCES = {"ci", "tf-modules"}
 
-# `qnsc-ci/.github/workflows/security.yml@v1.7.2`, `qnsc-ci/actions/setup-tofu-aws@v1`
-CI_PIN = re.compile(r"qnsc-ci/[^@\s]+@(v\d+(?:\.\d+){0,2})")
+# `ci/.github/workflows/security.yml@v1.7.2`, `ci/actions/setup-tofu-aws@v1`
+CI_PIN = re.compile(r"quynhonsemiconductor/ci/[^@\s]+@(v\d+(?:\.\d+){0,2})")
 # `modules/ecr?ref=ecr-v2.0.0`
 MODULE_PIN = re.compile(r"modules/[a-z0-9-]+\?ref=([a-z0-9-]+)-(v\d+\.\d+\.\d+)")
-# `iam-oidc-v3.0.1` — a per-module release tag in qnsc-tf-modules
+# `iam-oidc-v3.0.1` — a per-module release tag in tf-modules
 MODULE_TAG = re.compile(r"^([a-z0-9-]+)-(v\d+\.\d+\.\d+)$")
 SEMVER_TAG = re.compile(r"^v\d+\.\d+\.\d+$")
 
@@ -125,9 +125,9 @@ def tags(repo: str) -> list[str]:
 
 
 def newest_releases() -> tuple[str, dict[str, str]]:
-    ci = max((t for t in tags("qnsc-ci") if SEMVER_TAG.match(t)), key=version_key)
+    ci = max((t for t in tags("ci") if SEMVER_TAG.match(t)), key=version_key)
     modules: dict[str, str] = {}
-    for tag in tags("qnsc-tf-modules"):
+    for tag in tags("tf-modules"):
         m = MODULE_TAG.match(tag)
         if m and (
             m.group(1) not in modules
@@ -138,9 +138,9 @@ def newest_releases() -> tuple[str, dict[str, str]]:
 
 
 def pins_used(repo_dir: Path) -> tuple[set[str], dict[str, set[str]]]:
-    """Every qnsc-ci version and every terraform module version this repo pins.
+    """Every ci version and every terraform module version this repo pins.
 
-    Sets, not single values: a repo pinning TWO qnsc-ci versions is itself the finding —
+    Sets, not single values: a repo pinning TWO ci versions is itself the finding —
     that is how one reusable ends up a version behind on its own.
     """
     ci: set[str] = set()
@@ -185,7 +185,7 @@ def main() -> int:
     rows: list[tuple[str, list[str], str, str]] = []
 
     ci_values = [",".join(sorted(used[r][0], key=version_key)) for r in REPOS]
-    rows.append(("qnsc-ci", ci_values, ci_latest, classify(ci_values, ci_latest)))
+    rows.append(("ci", ci_values, ci_latest, classify(ci_values, ci_latest)))
 
     for module in sorted(module_latest):
         values = [",".join(sorted(used[r][1].get(module, ()), key=version_key)) for r in REPOS]
