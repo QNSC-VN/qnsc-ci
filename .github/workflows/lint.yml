@@ -6,13 +6,6 @@
 # it before a consumer's pipeline fails. actionlint checks workflow/action
 # YAML shape (bad `uses:`, undefined inputs/outputs, wrong expression syntax)
 # and shells out to shellcheck for embedded `run:` scripts.
-#
-# actionlint runs through actions-security.yml (called below), not as a job
-# here. It used to be a local job using an unpinned third-party action; the
-# reusable workflow now carries it with a checksum-pinned binary, so keeping
-# both would run it twice and leave the unpinned one as the org's example.
-# The reusable workflow is also what CONSUMERS get — this repo linted its own
-# workflows for a long time while shipping them nothing.
 # =============================================================================
 name: Lint · Actions
 
@@ -49,3 +42,19 @@ jobs:
       # deliberate, documented, accepted risk, not backlog.
       blocking: true
 
+  actionlint:
+    name: actionlint (workflows + actions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # TODO: pin to a full commit SHA (org convention) once this has run once
+      # and the resolved SHA is visible in the Actions log — not verified here.
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+        with:
+          fail-on-error: true
+          shellcheck: true
