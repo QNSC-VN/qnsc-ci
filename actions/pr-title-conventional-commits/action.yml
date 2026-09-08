@@ -1,0 +1,76 @@
+name: PR Title (Conventional Commits)
+description: >
+  Validate a pull request title against Conventional Commits.
+
+  Release Please derives the CHANGELOG from PR titles, so a malformed title is a
+  release defect rather than a style nit — which is why this is a required check
+  rather than a lint warning.
+
+  CALL THIS FROM A LOCAL JOB, NOT A REUSABLE WORKFLOW, and the distinction is not
+  stylistic. A job that calls a reusable workflow reports its check as
+  `<caller job>/<called job>`, so the reusable form would rename the check and any
+  branch-protection rule requiring `PR title (conventional commits)` would match
+  nothing. A required check that never reports does not fail — it blocks every merge
+  forever. Calling this action keeps the job local, so the check name is whatever the
+  caller's `jobs.<id>.name` says, and existing rulesets keep working untouched.
+
+  The caller's workflow needs `pull-requests: read` (required by the underlying
+  action) and must listen for the `edited` pull_request type, since a title is
+  editable after opening. See the README for the concurrency trap that goes with
+  `edited`.
+
+  No checkout is needed — this reads the title from the event payload.
+
+inputs:
+  types:
+    description: >
+      Newline-separated Conventional Commit types to accept. The default is the org
+      set, and matches what `commitlint.config.mjs` accepts in the product repos plus
+      the `deps` type Dependabot and Renovate emit — keep the two in step, or a commit
+      that passes locally fails in CI.
+    required: false
+    default: |
+      feat
+      fix
+      chore
+      docs
+      style
+      refactor
+      perf
+      security
+      test
+      build
+      ci
+      deps
+      revert
+  require-scope:
+    description: Require a scope, e.g. `feat(api): ...`.
+    required: false
+    default: 'false'
+  subject-pattern:
+    description: >
+      Regex the subject must match. The default rejects a leading capital, so titles
+      read consistently in a generated CHANGELOG.
+    required: false
+    default: '^(?![A-Z]).+$'
+  subject-pattern-error:
+    description: Message shown when `subject-pattern` does not match.
+    required: false
+    default: |
+      The subject "{subject}" must start with a lowercase letter.
+  github-token:
+    description: Token used to read the pull request.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50  # v6
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      with:
+        types: ${{ inputs.types }}
+        requireScope: ${{ inputs.require-scope }}
+        subjectPattern: ${{ inputs.subject-pattern }}
+        subjectPatternError: ${{ inputs.subject-pattern-error }}
