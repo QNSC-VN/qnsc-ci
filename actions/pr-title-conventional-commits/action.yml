@@ -44,7 +44,8 @@ inputs:
       deps
       revert
   require-scope:
-    description: Require a scope, e.g. `feat(api): ...`.
+    description: 'Require a scope, e.g. `feat(api): ...` — quoted because the colon-space
+      in the example is otherwise parsed as a nested mapping.'
     required: false
     default: 'false'
   subject-pattern:
