@@ -140,7 +140,7 @@ jobs:
       # and the resolved SHA is visible in the Actions log — not verified here.
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       - name: Install zizmor
         run: pip install --disable-pip-version-check zizmor==1.5.2
