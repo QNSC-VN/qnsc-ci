@@ -63,10 +63,67 @@ on:
         default: false
         type: boolean
 
+#
+# TWO tools, two questions, and they do not overlap:
+#
+#   actionlint  — is this workflow VALID? Schema, expression contexts, shell.
+#   zizmor      — is this workflow SAFE?  Injection, unpinned actions, permissions.
+#
+# actionlint is here because a schema fault is INVISIBLE in the worst possible
+# way. GitHub creates the run, fails it before any job starts, and the PR shows
+# NO checks rather than a red one — so it reads as "this workflow does not apply
+# to these paths", not as a failure. solodesk shipped three workflows referencing
+# a composite action as `@${{ env.CI_REF }}` (the `env` context is not available
+# in `uses:`) and NO run of any of them ever reached a step, from the day they
+# were written until 2026-09-08. actionlint names all nine occurrences in one
+# second; zizmor does not, because it is not a validity question.
+#
+# actionlint ALWAYS blocks, deliberately, and takes no `blocking` input. zizmor's
+# phased rollout makes sense for findings that need triage; an invalid workflow
+# has nothing to triage — it cannot run at all, so "report-only" would mean
+# merging something already known to be broken. It is a separate JOB rather than
+# a step so it reports as its own check and can be required independently, and so
+# a zizmor failure cannot skip it.
+#
+
 permissions:
   contents: read
 
 jobs:
+  actionlint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        shell: bash
+        env:
+          VERSION: '1.7.12'
+          # Pinned alongside the version: the tarball is fetched from a release
+          # asset, so without this the step trusts whatever that URL serves.
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          file="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$file" \
+            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${file}"
+          echo "${SHA256}  ${file}" | sha256sum -c -
+          tar -xzf "$file" actionlint
+          sudo install -m 0755 actionlint /usr/local/bin/actionlint
+          actionlint --version
+
+      - name: actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint -color
+
   zizmor:
     name: Actions security (zizmor)
     runs-on: ubuntu-latest
