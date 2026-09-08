@@ -1,0 +1,53 @@
+# =============================================================================
+# PR title — Conventional Commits.
+#
+# This repo OWNS actions/pr-title-conventional-commits and did not use it. It
+# runs release-please (release.yml), which derives the next version and the
+# changelog from commit messages — and under squash-merge the commit message
+# is the PR title. So an unparseable title here does not fail loudly: it
+# produces a wrong version bump for the tags every other repo pins, or drops
+# the change from the changelog entirely.
+#
+# WHY ITS OWN WORKFLOW rather than a job in lint.yml: the check must re-run
+# when a title is EDITED, and listening for that inside a heavier workflow
+# with cancel-in-progress is how a title edit cancels a real run — see the
+# same file in rova and opshub for the incident.
+#
+# WHY THE ACTION AND NOT THE REUSABLE WORKFLOW, even here where both are local:
+# a job that calls a reusable workflow reports its check as
+# `<caller job>/<called job>`, which would make this check's name differ from
+# every consumer's and from anything a ruleset requires.
+# =============================================================================
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read # required by the action's underlying semantic-pull-request step
+
+jobs:
+  pr-title:
+    # This name IS the check context. Do not rename it.
+    name: PR title (conventional commits)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A checkout IS required here, unlike in consumer repos. `uses: owner/repo/
+      # actions/x@ref` makes GitHub fetch the action itself; `uses: ./path` reads
+      # it from the workspace, so without this the run fails with "Can't find
+      # 'action.yml'". Note lint.yml self-references a reusable WORKFLOW by local
+      # path with no checkout — that form resolves by ref, composite actions do not.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Self-referenced by local path: this IS the repo the action lives in, so a
+      # pinned tag would test the released copy rather than the one in the PR.
+      - uses: ./actions/pr-title-conventional-commits
