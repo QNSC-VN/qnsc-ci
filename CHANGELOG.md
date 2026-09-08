@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/quynhonsemiconductor/ci/compare/v1.14.0...v1.15.0) (2026-09-08)
+
+
+### Features
+
+* **actions-security:** add actionlint alongside zizmor ([#111](https://github.com/quynhonsemiconductor/ci/issues/111)) ([4fba1a8](https://github.com/quynhonsemiconductor/ci/commit/4fba1a8de0d0b6704341e91ca362a41714cc78e2))
+
 ## [1.14.0](https://github.com/quynhonsemiconductor/ci/compare/v1.13.2...v1.14.0) (2026-09-08)
 
 
