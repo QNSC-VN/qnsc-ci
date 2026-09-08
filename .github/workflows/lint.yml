@@ -6,6 +6,20 @@
 # it before a consumer's pipeline fails. actionlint checks workflow/action
 # YAML shape (bad `uses:`, undefined inputs/outputs, wrong expression syntax)
 # and shells out to shellcheck for embedded `run:` scripts.
+#
+# actionlint runs through actions-security.yml, which this workflow calls
+# below — NOT as a local job here. It used to be one, using an unpinned
+# third-party action that its own TODO flagged as against org convention.
+# The reusable workflow now carries it with a checksum-pinned binary, and
+# that reusable is also what CONSUMERS get: this repo linted its own
+# workflows for a long time while shipping consumers nothing.
+#
+# SEQUENCING, because getting this wrong blocks the repo: the ruleset
+# required `actionlint (workflows + actions)` — the job removed here. A
+# required check that never reports does not fail, it blocks every merge
+# forever (see README). So the ruleset was repointed to
+# `actions-security / Workflow lint (actionlint)` FIRST, while both were
+# still reporting green, and only then was the job deleted.
 # =============================================================================
 name: Lint · Actions
 
@@ -41,20 +55,3 @@ jobs:
       # (release.yml's tag-push checkout, web-deploy.yml's cache-poisoning) are
       # deliberate, documented, accepted risk, not backlog.
       blocking: true
-
-  actionlint:
-    name: actionlint (workflows + actions)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      # TODO: pin to a full commit SHA (org convention) once this has run once
-      # and the resolved SHA is visible in the Actions log — not verified here.
-      - name: Run actionlint
-        uses: raven-actions/actionlint@v2
-        with:
-          fail-on-error: true
-          shellcheck: true
