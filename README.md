@@ -49,14 +49,38 @@ Shared CI/CD logic lives here as versioned composite actions, so bug fixes and i
 |---|---|
 | [`scan-secrets`](actions/scan-secrets/action.yml) | Gitleaks secret scan with SARIF upload to GitHub Security tab |
 | [`agent-forge-test-guard`](actions/agent-forge-test-guard/action.yml) | Fail a PR that deletes assertions, drops test files or adds dependencies without declaring it |
+| [`pr-title-conventional-commits`](actions/pr-title-conventional-commits/action.yml) | Validate a PR title against Conventional Commits — Release Please derives the CHANGELOG from it |
 
-**Use the ACTION, not the reusable workflow, if `test-guard` is already a required
-check.** A job that calls a reusable workflow reports as `<caller job>/<called
-job>` — the security suite in this repo shows up as `security / SAST (Semgrep)` for
-exactly this reason. So the reusable form reports **`test-guard / test-guard`**, and
-a ruleset requiring `test-guard` matches nothing. A required check that never
-reports does not fail: it blocks every merge, indefinitely, showing as "Expected"
-in the protection UI.
+### A REQUIRED check must be a composite action, never a reusable workflow
+
+The single most expensive mistake available in this repo, and it fails in the one
+direction CI normally cannot: **it does not go red, it goes silent.**
+
+A job that calls a reusable workflow reports its check as `<caller job>/<called
+job>` — the security suite here shows up as `security / SAST (Semgrep)` for exactly
+this reason. So a reusable `test-guard` reports **`test-guard / test-guard`**, and a
+ruleset requiring `test-guard` matches nothing at all. **A required check that never
+reports does not fail — it blocks every merge indefinitely**, sitting as "Expected"
+in the protection UI with nothing to click.
+
+The same trap runs in reverse when a workflow is deleted: removing a workflow that
+backs a required check leaves the same permanent "Expected". Check the ruleset before
+deleting one:
+
+```bash
+gh api repos/<org>/<repo>/rulesets/<id> \
+  -q '.rules[] | select(.type=="required_status_checks")
+       | .parameters.required_status_checks[].context'
+```
+
+**The rule:** if the check name appears in `required_status_checks`, call a composite
+action from a job defined in the consuming repository, so the job id and name stay
+local and under that repo's control. Reusable workflows are fine for everything that
+is not a required check.
+
+Currently required in rova and opshub, and therefore action-shaped:
+`PR title (conventional commits)`, `Lint & typecheck`, `Tests`, `E2E (Playwright)`,
+`Migration upgrade path`, `OpenAPI contract`.
 
 The action form keeps the job local, so the check keeps the name `test-guard` and an
 existing ruleset needs no change:
