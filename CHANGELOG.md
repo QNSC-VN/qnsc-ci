@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.3](https://github.com/quynhonsemiconductor/ci/compare/v1.16.2...v1.16.3) (2026-09-09)
+
+
+### Bug Fixes
+
+* **actions:** iac-lint stopped scanning at the first directory with findings ([#127](https://github.com/quynhonsemiconductor/ci/issues/127)) ([433e5a1](https://github.com/quynhonsemiconductor/ci/commit/433e5a1a3e48a372c69659fa6f27572e255512c9))
+
 ## [1.16.2](https://github.com/quynhonsemiconductor/ci/compare/v1.16.1...v1.16.2) (2026-09-09)
 
 
