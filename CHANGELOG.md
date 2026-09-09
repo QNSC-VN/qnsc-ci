@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.0](https://github.com/quynhonsemiconductor/ci/compare/v1.15.0...v1.16.0) (2026-09-09)
+
+
+### Features
+
+* **actions:** add iac-lint and iac-checkov composites for the three IaC repos ([#122](https://github.com/quynhonsemiconductor/ci/issues/122)) ([a3eea37](https://github.com/quynhonsemiconductor/ci/commit/a3eea37a84ae448d3db808b9bb7a5fd270ef61e6))
+* **ci:** check PR titles against Conventional Commits ([#119](https://github.com/quynhonsemiconductor/ci/issues/119)) ([14f5408](https://github.com/quynhonsemiconductor/ci/commit/14f5408a01d02a88faafdccab90d44f78b11d022))
+
 ## [1.15.0](https://github.com/quynhonsemiconductor/ci/compare/v1.14.0...v1.15.0) (2026-09-08)
 
 
