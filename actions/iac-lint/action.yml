@@ -56,11 +56,14 @@ inputs:
       that host, so the check fails at random with "403 API rate limit exceeded"
       — flaky by construction rather than by anything in the repo. Pass
       the caller's secrets.GITHUB_TOKEN; it raises the limit to 5000/hour.
-      (Written without expression syntax on purpose: GitHub evaluates every
-      `${{ ... }}` in this file INCLUDING inside a description string, and
-      `secrets` is not a valid context in composite-action metadata — so an
-      illustrative example here fails the whole action to load, for every
-      consumer, with `Unrecognized named-value: 'secrets'`.)
+      NO EXPRESSION SYNTAX ANYWHERE IN THIS PROSE, deliberately, and it has bitten
+      twice. GitHub evaluates expressions in EVERY string in an action file,
+      including a description, which is documentation and never executes. So an
+      illustrative call-site example here does not stay an example: the first
+      attempt used the secrets context, which is not valid in composite-action
+      metadata, and failed the action to load for every consumer. The second
+      attempt explained that in a comment which itself contained the syntax, and
+      failed the same way on the ellipsis. Describe it in words; never quote it.
     required: false
     default: ""
 
