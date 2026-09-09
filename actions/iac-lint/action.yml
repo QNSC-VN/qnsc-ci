@@ -109,14 +109,20 @@ runs:
         set -euo pipefail
         shopt -s nullglob
         found=0
+        failed=0
         for dir in $DIRS; do
           found=1
           echo "── validating $dir ──"
-          tofu -chdir="$dir" init -backend=false -input=false >/dev/null
-          tofu -chdir="$dir" validate
+          # `|| failed=1` rather than letting `set -e` abort: a linter that stops
+          # at the first bad directory turns fixing an N-directory repo into N
+          # round-trips, and worse, it makes the finding list look complete when
+          # it is truncated. Scan everything, then fail once at the end.
+          tofu -chdir="$dir" init -backend=false -input=false >/dev/null || { failed=1; continue; }
+          tofu -chdir="$dir" validate || failed=1
         done
         # As above: iterating zero directories must not pass as success.
         [ "$found" = 1 ] || { echo "::error::iac-lint: 'dirs' matched no directories"; exit 1; }
+        [ "$failed" = 0 ] || { echo "::error::iac-lint: tofu validate reported problems (see the per-directory output above)"; exit 1; }
 
     - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
       if: ${{ inputs.tflint == 'true' }}
@@ -134,9 +140,15 @@ runs:
         shopt -s nullglob
         tflint --init
         found=0
+        failed=0
         for dir in $DIRS; do
           found=1
           echo "── tflint $dir ──"
-          tflint --chdir="$dir"
+          # See the validate loop above: aggregate, do not abort. tflint exits
+          # non-zero on findings, so `set -e` alone stopped the scan at the FIRST
+          # directory with a warning — infra saw 2 of its 9 stacks and
+          # infra-template 2 of 3, while the output read like a complete result.
+          tflint --chdir="$dir" || failed=1
         done
         [ "$found" = 1 ] || { echo "::error::iac-lint: 'dirs' matched no directories"; exit 1; }
+        [ "$failed" = 0 ] || { echo "::error::iac-lint: tflint reported findings (see the per-directory output above)"; exit 1; }
