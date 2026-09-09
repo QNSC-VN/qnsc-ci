@@ -55,7 +55,12 @@ inputs:
       anonymous and shares the runner IP's 60/hour limit with every other job on
       that host, so the check fails at random with "403 API rate limit exceeded"
       — flaky by construction rather than by anything in the repo. Pass
-      `${{ secrets.GITHUB_TOKEN }}`; it raises the limit to 5000/hour.
+      the caller's secrets.GITHUB_TOKEN; it raises the limit to 5000/hour.
+      (Written without expression syntax on purpose: GitHub evaluates every
+      `${{ ... }}` in this file INCLUDING inside a description string, and
+      `secrets` is not a valid context in composite-action metadata — so an
+      illustrative example here fails the whole action to load, for every
+      consumer, with `Unrecognized named-value: 'secrets'`.)
     required: false
     default: ""
 
