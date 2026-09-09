@@ -1,0 +1,134 @@
+name: OpenTofu lint (fmt / validate / tflint)
+description: >
+  The three IaC gates that need no cloud credentials: `tofu fmt -check`,
+  `tofu validate` against each directory with the backend disabled, and tflint.
+
+  Each is opt-in, because the three IaC repos legitimately want different
+  subsets. tf-modules runs all three (a module library has no backend, so
+  validate works offline). infra and infra-template run fmt and tflint here but
+  NOT validate — their `validate` needs a real backend and AWS credentials, so it
+  belongs in the plan job beside `tofu plan`, not in an offline lint step.
+
+  Composite rather than a reusable workflow, deliberately: these gates are pinned
+  as REQUIRED checks by bare job name (`tofu fmt check`, `fmt · validate ·
+  tflint`), and a reusable workflow would rename them to `<caller> / <job>`. A
+  required check that never reports blocks every merge, permanently.
+
+inputs:
+  tofu-version:
+    description: OpenTofu version to install.
+    required: false
+    default: "1.9.1"
+  fmt:
+    description: Run `tofu fmt -check -recursive -diff`.
+    required: false
+    default: "true"
+  validate:
+    description: >
+      Run `tofu init -backend=false && tofu validate` for every directory matched
+      by `dirs`. Only meaningful where no backend is required — see the note
+      above. Requires `dirs`.
+    required: false
+    default: "false"
+  tflint:
+    description: Run tflint for every directory matched by `dirs`. Requires `dirs`.
+    required: false
+    default: "false"
+  dirs:
+    description: >
+      Shell glob of directories to iterate for `validate` and `tflint`, e.g.
+      `modules/*/` or `live/*/`. Must end in a slash. Ignored when both are off.
+    required: false
+    default: ""
+  tflint-version:
+    description: >
+      PINNED, never `latest`. tflint adds and tightens rules between releases, so
+      `latest` lets a tflint release turn a required check red overnight on a PR
+      that changed no Terraform — and the failure then reads as the PR's fault.
+      Renovate keeps this current as a visible bump instead of a silent one.
+    required: false
+    default: v0.64.0
+  github-token:
+    description: >
+      Token for `tflint --init`, which downloads rulesets from the GitHub
+      releases API. REQUIRED when `tflint` is on. Without it the request is
+      anonymous and shares the runner IP's 60/hour limit with every other job on
+      that host, so the check fails at random with "403 API rate limit exceeded"
+      — flaky by construction rather than by anything in the repo. Pass
+      `${{ secrets.GITHUB_TOKEN }}`; it raises the limit to 5000/hour.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+      with:
+        tofu_version: ${{ inputs.tofu-version }}
+
+    - name: Fail fast on a misconfigured call
+      shell: bash
+      env:
+        VALIDATE: ${{ inputs.validate }}
+        TFLINT: ${{ inputs.tflint }}
+        DIRS: ${{ inputs.dirs }}
+        TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        # A silently-skipped gate is worse than a loud misconfiguration: an empty
+        # `dirs` would make the loops below iterate nothing and pass green, which
+        # reads in review as "validate ran and found nothing".
+        if { [ "$VALIDATE" = "true" ] || [ "$TFLINT" = "true" ]; } && [ -z "$DIRS" ]; then
+          echo "::error::iac-lint: 'dirs' is required when validate or tflint is enabled"
+          exit 1
+        fi
+        if [ "$TFLINT" = "true" ] && [ -z "$TOKEN" ]; then
+          echo "::error::iac-lint: 'github-token' is required when tflint is enabled (see the input's description)"
+          exit 1
+        fi
+
+    - name: tofu fmt (check)
+      if: ${{ inputs.fmt == 'true' }}
+      shell: bash
+      run: tofu fmt -check -recursive -diff
+
+    - name: tofu validate (per directory)
+      if: ${{ inputs.validate == 'true' }}
+      shell: bash
+      env:
+        DIRS: ${{ inputs.dirs }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        found=0
+        for dir in $DIRS; do
+          found=1
+          echo "── validating $dir ──"
+          tofu -chdir="$dir" init -backend=false -input=false >/dev/null
+          tofu -chdir="$dir" validate
+        done
+        # As above: iterating zero directories must not pass as success.
+        [ "$found" = 1 ] || { echo "::error::iac-lint: 'dirs' matched no directories"; exit 1; }
+
+    - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+      if: ${{ inputs.tflint == 'true' }}
+      with:
+        tflint_version: ${{ inputs.tflint-version }}
+
+    - name: tflint (per directory)
+      if: ${{ inputs.tflint == 'true' }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        DIRS: ${{ inputs.dirs }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        tflint --init
+        found=0
+        for dir in $DIRS; do
+          found=1
+          echo "── tflint $dir ──"
+          tflint --chdir="$dir"
+        done
+        [ "$found" = 1 ] || { echo "::error::iac-lint: 'dirs' matched no directories"; exit 1; }
