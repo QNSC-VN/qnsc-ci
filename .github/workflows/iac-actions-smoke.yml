@@ -1,0 +1,67 @@
+# =============================================================================
+# Smoke test for the IaC composite actions.
+#
+# WHY THIS EXISTS. iac-lint shipped BROKEN TWICE, and both failures were
+# load-time template errors — GitHub evaluates expressions in every string of an
+# action file, including an input `description`, so prose containing expression
+# syntax fails the whole action to load before a single step runs. Neither
+# attempt was caught here: `actionlint` does not lint `actions/**`, and nothing
+# in this repo ever invoked the action. Both were found by three DOWNSTREAM
+# repos' pull requests failing at "Set up job".
+#
+# Invoking each action once is enough to catch that entire class, because a
+# template error is a load error. This is not a behavioural test suite.
+# =============================================================================
+name: IaC actions · Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'actions/iac-lint/**'
+      - 'actions/iac-checkov/**'
+      - '.github/fixtures/iac/**'
+      - '.github/workflows/iac-actions-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  iac-lint:
+    name: iac-lint loads and runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Local path, not @v1: this must exercise the code in the PR, not the code
+      # already released.
+      - uses: ./actions/iac-lint
+        with:
+          fmt: 'true'
+          validate: 'true'
+          tflint: 'true'
+          dirs: '.github/fixtures/iac/*/'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  iac-checkov:
+    name: iac-checkov loads and runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./actions/iac-checkov
+        with:
+          directory: .github/fixtures/iac/
+          soft-fail: 'true'
+          # The SARIF upload needs `security-events: write`, which this job
+          # deliberately does not grant — the smoke test proves the scan runs,
+          # and asking for a write permission to test a read path would be the
+          # wrong trade.
+          upload-sarif: 'false'
