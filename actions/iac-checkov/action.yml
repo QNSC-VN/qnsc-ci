@@ -1,0 +1,73 @@
+name: Checkov IaC scan
+description: >
+  Scan Terraform/OpenTofu for misconfiguration with Checkov, emit SARIF, and
+  optionally upload it to the GitHub Security tab.
+
+  Use this INSIDE an existing job rather than as a reusable workflow. A reusable
+  workflow reports its check as `<caller job> / <inner job>`, which renames the
+  status check — and every IaC repo here pins `checkov (IaC misconfig)` as a
+  REQUIRED check on main. A renamed required check never reports, and a required
+  check that never reports blocks every merge, permanently. A composite action
+  runs as a step in the caller's own job, so the job name (and therefore the
+  check name) is unchanged.
+
+inputs:
+  directory:
+    description: Directory to scan, relative to the repo root (e.g. `live/`, `modules/`).
+    required: true
+  framework:
+    description: Checkov framework to run.
+    required: false
+    default: terraform
+  soft-fail:
+    description: >
+      "true" reports findings without failing the job; "false" fails on any
+      finding not recorded in `baseline`. Passed through as a string because
+      composite-action inputs are always strings — do not quote it as a YAML
+      boolean at the call site and expect type coercion.
+    required: false
+    default: "true"
+  baseline:
+    description: >
+      Optional path to a `.checkov.baseline`. When set, Checkov fails only on
+      findings ABSENT from the baseline, which is what makes `soft-fail: "false"`
+      adoptable on a repo that already has findings: existing ones are recorded,
+      new ones block. Leave empty for no baseline.
+    required: false
+    default: ""
+  sarif-file:
+    description: Path the SARIF report is written to.
+    required: false
+    default: checkov.sarif
+  upload-sarif:
+    description: >
+      Upload the SARIF to the Security tab. Requires `security-events: write` on
+      the calling job. The upload is best-effort (`continue-on-error`) because it
+      is GHAS-gated and no-ops on the free plan for private repos — a scan result
+      must not be lost to an upload that was never going to work.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkov scan
+      uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12.3122.0
+      with:
+        directory: ${{ inputs.directory }}
+        framework: ${{ inputs.framework }}
+        quiet: true
+        output_format: cli,sarif
+        output_file_path: console,${{ inputs.sarif-file }}
+        soft_fail: ${{ inputs.soft-fail }}
+        # Empty means "no baseline". checkov-action only forwards a non-empty
+        # value as `--baseline`, so one step serves both shapes; both are
+        # exercised in CI today (tf-modules passes a baseline, infra does not).
+        baseline: ${{ inputs.baseline }}
+
+    - name: Upload Checkov SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+      continue-on-error: true
