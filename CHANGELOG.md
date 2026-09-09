@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.1](https://github.com/quynhonsemiconductor/ci/compare/v1.16.0...v1.16.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **actions:** iac-lint failed to load — an expression in an input description ([#123](https://github.com/quynhonsemiconductor/ci/issues/123)) ([82e7800](https://github.com/quynhonsemiconductor/ci/commit/82e7800adfc81dcc9b6e58febd1461af4f886927))
+
 ## [1.16.0](https://github.com/quynhonsemiconductor/ci/compare/v1.15.0...v1.16.0) (2026-09-09)
 
 
