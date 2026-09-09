@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.2](https://github.com/quynhonsemiconductor/ci/compare/v1.16.1...v1.16.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **actions:** remove expression syntax from iac-lint prose, and smoke-test both ([#125](https://github.com/quynhonsemiconductor/ci/issues/125)) ([d2eb87a](https://github.com/quynhonsemiconductor/ci/commit/d2eb87ad7705d6e9686039ed0bc453bf57d34d68))
+
 ## [1.16.1](https://github.com/quynhonsemiconductor/ci/compare/v1.16.0...v1.16.1) (2026-09-09)
 
 
