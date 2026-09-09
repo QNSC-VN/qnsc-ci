@@ -35,6 +35,39 @@ runs:
           | tar -xz -C /usr/local/bin gitleaks
         gitleaks version
 
+    # ── Prove the scanner is armed, BEFORE trusting a clean result ────────────
+    #
+    # gitleaks 8 treats a repo's `.gitleaks.toml` as THE config, not as an addition
+    # to the built-in ruleset. A config that declares an [allowlist] and no [[rules]]
+    # therefore leaves gitleaks with NOTHING to detect: it scans, finds nothing,
+    # exits 0, and the required check goes green.
+    #
+    # That is not hypothetical. rova, opshub and qnsc-landing each shipped exactly
+    # that config and had no secret scanning at all — for the life of the file —
+    # while their `Secret scan (Gitleaks)` check passed on every push and PR.
+    #
+    # A scanner that can only report success cannot be trusted to report failure. So
+    # plant a credential gitleaks certainly detects, scan it with THIS REPOSITORY'S
+    # OWN config, and fail loudly if it comes back clean. Costs milliseconds, and
+    # catches the whole class: a missing [extend], an allowlist broad enough to match
+    # everything, and any future change to config semantics.
+    - name: Verify the scanner is armed
+      shell: bash
+      run: |
+        set -euo pipefail
+        canary="$(mktemp -d)"
+        # Assembled at runtime so this literal is not itself a detectable secret in
+        # the ci repository.
+        printf 'const t = "%s_%s"\n' 'ghp' 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8' > "$canary/canary.txt"
+        if [ -f .gitleaks.toml ]; then cp .gitleaks.toml "$canary/.gitleaks.toml"; fi
+
+        if gitleaks dir "$canary" --no-banner --redact --exit-code 1 >/dev/null 2>&1; then
+          echo "::error::Secret scanning is NOT ARMED — gitleaks did not detect a known-detectable credential when run with this repository's .gitleaks.toml, so a clean scan result means nothing. Usual cause: a config with an [allowlist] but no [[rules]] and no \`[extend] useDefault = true\`, which REPLACES the default ruleset instead of extending it. Add that block, or narrow an allowlist that is matching everything."
+          exit 1
+        fi
+        echo "Scanner armed: the canary credential was detected."
+        rm -rf "$canary"
+
     - name: Scan git history for secrets
       shell: bash
       env:
