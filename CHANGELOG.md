@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.17.0](https://github.com/quynhonsemiconductor/ci/compare/v1.16.3...v1.17.0) (2026-09-10)
+
+
+### Features
+
+* **actions:** add assert-jobs-succeeded, an aggregate CI gate ([#132](https://github.com/quynhonsemiconductor/ci/issues/132)) ([ad9ede8](https://github.com/quynhonsemiconductor/ci/commit/ad9ede81dd562135c2d4ae80464c0d158e64951b))
+
+
+### Bug Fixes
+
+* **actions:** drop expression syntax from assert-jobs-succeeded prose ([#133](https://github.com/quynhonsemiconductor/ci/issues/133)) ([ddfa08a](https://github.com/quynhonsemiconductor/ci/commit/ddfa08a70b2b872062775d25da0c568e25acf0e6))
+* **ci:** run CI on stacked pull requests, not only PRs aimed at main ([#130](https://github.com/quynhonsemiconductor/ci/issues/130)) ([52406e7](https://github.com/quynhonsemiconductor/ci/commit/52406e78851285050a34cf934f4d328f2e85de50))
+
 ## [1.16.3](https://github.com/quynhonsemiconductor/ci/compare/v1.16.2...v1.16.3) (2026-09-09)
 
 
