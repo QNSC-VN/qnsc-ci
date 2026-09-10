@@ -50,6 +50,7 @@ Shared CI/CD logic lives here as versioned composite actions, so bug fixes and i
 | [`scan-secrets`](actions/scan-secrets/action.yml) | Gitleaks secret scan with SARIF upload to GitHub Security tab |
 | [`agent-forge-test-guard`](actions/agent-forge-test-guard/action.yml) | Fail a PR that deletes assertions, drops test files or adds dependencies without declaring it |
 | [`pr-title-conventional-commits`](actions/pr-title-conventional-commits/action.yml) | Validate a PR title against Conventional Commits — Release Please derives the CHANGELOG from it |
+| [`assert-jobs-succeeded`](actions/assert-jobs-succeeded/action.yml) | Fail a CI gate job unless every job it depends on reported `success` — closes the skipped/cancelled-counts-as-passing hole |
 
 ### A REQUIRED check must be a composite action, never a reusable workflow
 
@@ -81,6 +82,54 @@ is not a required check.
 Currently required in rova and opshub, and therefore action-shaped:
 `PR title (conventional commits)`, `Lint & typecheck`, `Tests`, `E2E (Playwright)`,
 `Migration upgrade path`, `OpenAPI contract`.
+
+#### …and requiring each job by name is still not enough
+
+Naming every job in `required_status_checks` closes the "wrong check name" half of the
+trap and leaves the other half open: **a SKIPPED or CANCELLED required check counts as
+PASSING.** So a job that never runs cannot be caught by requiring that job.
+
+Both org incidents are this bug:
+
+* opshub #110 — a PR-title edit cancelled the in-flight run; `cancel-in-progress` plus
+  `if: action != 'edited'` guards replaced it with a run where every heavy job skipped.
+  Green, having executed nothing. Three times.
+* rova #558-#590 — `pull_request.branches: [main]` skipped the whole workflow for a PR
+  aimed at the branch below it in a stack. Five PRs sat on `5/5` green with no tests, no
+  build, no E2E, no migration check and no security scan.
+
+Fix the cause, then add one **aggregate gate** per workflow so the class of bug cannot
+return the next time somebody adds an `if:` or a `paths:` filter. The gate asserts a
+positive `success` from every job, which is why
+[`assert-jobs-succeeded`](actions/assert-jobs-succeeded/action.yml) compares against
+`success` instead of listing known-bad states — a `contains(needs.*.result, 'failure')`
+check silently passes any result GitHub adds later.
+
+```yaml
+  ci-required:
+    name: Backend CI required     # this name IS the required check
+    if: always()                  # mandatory — without it the gate skips when a dep fails
+    needs: [quality, test, migrations, build, openapi]   # MUST list every job
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: quynhonsemiconductor/ci/actions/assert-jobs-succeeded@v1
+        with:
+          results: ${{ join(needs.*.result, ',') }}
+```
+
+Then require **only** the gate name (`Backend CI required`, `Web CI required`) rather than
+the individual jobs. Two things to keep in mind when adopting it:
+
+* Add the gate to the ruleset **only after** the workflow change is on the default branch.
+  A required check that does not exist yet blocks every merge, including the release PR.
+* A workflow with legitimately conditional jobs — `infra`'s `Detect changed stacks` matrix,
+  for example — needs either `allow-skipped: true` or those jobs left out of `needs`.
+  Prefer trimming `needs`, so "did not run" stays fatal for everything that should run.
+
+Give two workflows in the same repo **distinct** gate names. rova's `backend-ci.yml` and
+`web-ci.yml` both publish a job called `Lint & typecheck`, and a required check matched by
+name against two producers is ambiguous.
 
 The action form keeps the job local, so the check keeps the name `test-guard` and an
 existing ruleset needs no change:

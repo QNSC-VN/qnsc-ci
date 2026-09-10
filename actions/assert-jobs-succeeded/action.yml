@@ -1,0 +1,116 @@
+name: Assert jobs succeeded
+description: >
+  Fail unless EVERY job feeding the calling gate job reported `success`.
+
+  This exists because of the one CI failure mode that does not go red — it goes
+  silent: **GitHub counts a SKIPPED or CANCELLED required check as PASSING.** Naming
+  each job individually in `required_status_checks` therefore cannot catch a job that
+  never ran. Two incidents in this org are the same bug wearing different hats:
+
+    * A PR-title edit cancelled the in-flight run and replaced it with one where every
+      heavy job was guarded out by `if: action != 'edited'`. The PR went green having
+      executed nothing. Observed three times on opshub #110.
+    * rova's Phase 7 stack (#558-#590) reported 3-5 checks instead of 22 because
+      `pull_request.branches: [main]` skipped the whole workflow for a PR aimed at the
+      branch below it. Five PRs sat green with no tests, no build, no E2E and no
+      security scan.
+
+  The fix is to invert the default: assert a POSITIVE `success` from every job, so
+  "did not run" is a failure rather than an absence. Note that this asserts equality
+  with `success` rather than listing known-bad states — a `contains(..., 'failure')`
+  style check silently passes any result GitHub adds later.
+
+  CALL THIS FROM A LOCAL JOB, NOT A REUSABLE WORKFLOW. Two independent reasons, and
+  both are load-bearing:
+
+    1. This gate IS a required check, so the reusable form would rename it to
+       `<caller job>/<called job>` and the ruleset would match nothing — see
+       "A REQUIRED check must be a composite action, never a reusable workflow" in the
+       README.
+    2. `needs` is workflow-local by definition. A reusable workflow cannot depend on
+       the caller's jobs, so the dependency list has to live in the consuming repo
+       regardless.
+
+  The consuming repo therefore keeps a small gate job that owns its own `needs` list
+  and its own check name, and calls this action for the assertion:
+
+  ```yaml
+    ci-required:
+      name: Backend CI required     # this name IS the required check
+      if: always()                  # without it the gate skips when a dep fails
+      needs: [quality, test, migrations, build, openapi]
+      runs-on: ubuntu-latest
+      timeout-minutes: 5
+      steps:
+        - uses: quynhonsemiconductor/ci/actions/assert-jobs-succeeded@v1
+          with:
+            results: ${{ join(needs.*.result, ',') }}
+  ```
+
+  `if: always()` is mandatory. Without it the gate job skips as soon as a dependency
+  fails, and a skipped gate is exactly the hole this action closes. A cancelled
+  WORKFLOW still cancels the gate rather than failing it, so a run superseded by
+  `cancel-in-progress` does not leave a red check behind; its replacement reports fresh.
+
+  Every job in the workflow must appear in `needs`. A job outside `needs` is a job
+  outside the gate.
+
+inputs:
+  results:
+    description: >
+      `${{ join(needs.*.result, ',') }}` from the calling gate job — the comma-separated
+      result of every job the gate depends on. Empty is treated as a failure: a gate with
+      no dependencies is a broken gate, not a passing one.
+    required: true
+  allow-skipped:
+    description: >
+      Treat `skipped` as success. Leave this `false` unless the workflow genuinely has
+      conditional jobs (a `paths:` filter, or a per-job `if:`). Prefer excluding an
+      optional job from the caller's `needs` over loosening the whole gate — that keeps
+      "did not run" fatal for every job that is supposed to run.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Assert every dependency succeeded
+      shell: bash
+      env:
+        # Passed through `env` rather than interpolated into the script body, per the
+        # org-wide rule zizmor enforces. These are controlled values, but the habit is
+        # the point.
+        RESULTS: ${{ inputs.results }}
+        ALLOW_SKIPPED: ${{ inputs.allow-skipped }}
+      run: |
+        set -euo pipefail
+
+        echo "dependency results → ${RESULTS:-<empty>}"
+
+        if [ -z "${RESULTS//[[:space:]]/}" ]; then
+          echo "::error title=Empty gate::No dependency results were supplied. The gate job \
+        is missing its \`needs\` list, so it is guarding nothing."
+          exit 1
+        fi
+
+        bad=""
+        IFS=',' read -ra results <<< "${RESULTS}"
+        for raw in "${results[@]}"; do
+          result="${raw//[[:space:]]/}"
+          [ -z "${result}" ] && continue
+          [ "${result}" = "success" ] && continue
+          if [ "${result}" = "skipped" ] && [ "${ALLOW_SKIPPED}" = "true" ]; then
+            echo "note: a skipped job was accepted because allow-skipped=true"
+            continue
+          fi
+          bad="${bad}${bad:+, }${result}"
+        done
+
+        if [ -n "${bad}" ]; then
+          echo "::error title=CI gate failed::A required job did not succeed (${bad}). \
+        A skipped or cancelled job fails this gate on purpose — GitHub would otherwise \
+        count it as passing."
+          exit 1
+        fi
+
+        echo "All ${#results[@]} dependencies succeeded."
