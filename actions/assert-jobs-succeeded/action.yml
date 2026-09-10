@@ -44,8 +44,16 @@ description: >
       steps:
         - uses: quynhonsemiconductor/ci/actions/assert-jobs-succeeded@v1
           with:
-            results: ${{ join(needs.*.result, ',') }}
+            results: <join(needs.*.result, ',') wrapped in expression braces>
   ```
+
+  The expression braces are deliberately OMITTED from that snippet: GitHub evaluates
+  `${...}` expressions inside an action manifest, including in prose like this, and
+  `needs` is not a valid context there — so writing the example literally makes the
+  manifest fail to load with "Unrecognized named-value: 'needs'" and every consuming
+  gate job dies at "Set up job". This repo has already paid for that lesson once, in
+  "remove expression syntax from iac-lint prose" (#125). The README carries the
+  copy-pasteable version, because a README is not parsed.
 
   `if: always()` is mandatory. Without it the gate job skips as soon as a dependency
   fails, and a skipped gate is exactly the hole this action closes. A cancelled
@@ -58,9 +66,10 @@ description: >
 inputs:
   results:
     description: >
-      `${{ join(needs.*.result, ',') }}` from the calling gate job — the comma-separated
-      result of every job the gate depends on. Empty is treated as a failure: a gate with
-      no dependencies is a broken gate, not a passing one.
+      `join(needs.*.result, ',')` from the calling gate job, wrapped in expression braces
+      (omitted here — see this action's own description for why literal braces break the
+      manifest). The comma-separated result of every job the gate depends on. Empty is
+      treated as a failure: a gate with no dependencies is a broken gate, not a passing one.
     required: true
   allow-skipped:
     description: >
